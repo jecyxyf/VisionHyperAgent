@@ -1,0 +1,13 @@
+[package]
+name = "vision-hyper-agent"
+version = "0.1.0"
+edition = "2024"
+description = "Agent-driven vision model training and deployment desktop application"
+license = "MIT"
+publish = false
+
+[[test]]
+name = "smoke"
+path = "depoly/tests/smoke.rs"
+
+[dependencies]
