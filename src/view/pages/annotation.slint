@@ -1,0 +1,76 @@
+import { Theme } from "../theme.slint";
+import { GlassPanel, IconButton, ToolbarDivider } from "../components/controls.slint";
+import { WorkspaceHeader, EmptyState, GridCanvas } from "../components/workspace.slint";
+
+export component AnnotationPage inherits Rectangle {
+    callback preview-action(string);
+    in-out property <bool> grid-mode: true;
+    VerticalLayout {
+        spacing: 12px;
+        WorkspaceHeader {
+            title: "标注";
+            IconButton { label: "打开图片目录"; icon: @image-url("../resources/ui/icons/folder.svg"); primary: true; activated => { root.preview-action("暂时无法打开图片目录。"); } }
+            ToolbarDivider {}
+            IconButton { label: "批量浏览"; icon: @image-url("../resources/ui/icons/grid.svg"); selected: root.grid-mode; activated => { root.grid-mode = true; } }
+            IconButton { label: "逐图标注"; icon: @image-url("../resources/ui/icons/edit.svg"); selected: !root.grid-mode; activated => { root.grid-mode = false; } }
+            ToolbarDivider {}
+            IconButton { label: "Agent 生成初标"; icon: @image-url("../resources/ui/icons/spark.svg"); activated => { root.preview-action("Agent 未连接，无法生成标注。"); } }
+            IconButton { label: "确认标注"; icon: @image-url("../resources/ui/icons/check.svg"); activated => { root.preview-action("没有可确认的标注。"); } }
+        }
+        GlassPanel {
+            height: 46px;
+            HorizontalLayout {
+                padding-left: 16px; padding-right: 16px; spacing: 10px;
+                cross-axis-alignment: center;
+                Image { source: @image-url("../resources/ui/icons/folder.svg"); width: 16px; height: 16px; colorize: Theme.subdued; }
+                Text { text: "未打开目录"; color: Theme.muted; font-size: 0.83rem; horizontal-stretch: 1; }
+                Text { text: "0 张图片"; color: Theme.subdued; font-size: 0.8rem; }
+            }
+        }
+        if root.grid-mode: GlassPanel {
+            vertical-stretch: 1;
+            VerticalLayout {
+                padding: 18px; spacing: 16px;
+                HorizontalLayout {
+                    Text { text: "图片浏览"; color: Theme.text; font-size: 0.9rem; font-weight: 500; horizontal-stretch: 1; }
+                }
+                Rectangle {
+                    vertical-stretch: 1;
+                    EmptyState {
+                        icon: @image-url("../resources/ui/icons/grid.svg");
+                        title: "打开图片目录";
+                    }
+                }
+                Text { text: "待标注  0     ·     待审核  0     ·     已确认  0"; color: Theme.subdued; font-size: 0.78rem; }
+            }
+        }
+        if !root.grid-mode: HorizontalLayout {
+            spacing: 12px;
+            GlassPanel {
+                width: 116px;
+                VerticalLayout {
+                    padding: 12px; spacing: 12px;
+                    Text { text: "图片列表"; color: Theme.muted; font-size: 0.8rem; }
+                    Rectangle { vertical-stretch: 1; }
+                    HorizontalLayout {
+                        IconButton { label: "上一张"; icon: @image-url("../resources/ui/icons/previous.svg"); activated => { root.preview-action("当前没有图片。"); } }
+                        Rectangle { horizontal-stretch: 1; }
+                        IconButton { label: "下一张"; icon: @image-url("../resources/ui/icons/next.svg"); activated => { root.preview-action("当前没有图片。"); } }
+                    }
+                }
+            }
+            GlassPanel {
+                horizontal-stretch: 1;
+                VerticalLayout {
+                    padding: 14px; spacing: 12px;
+                    Text { text: "标注画布"; color: Theme.text; font-size: 0.9rem; font-weight: 500; }
+                    GridCanvas {
+                        vertical-stretch: 1;
+                        EmptyState { icon: @image-url("../resources/ui/icons/edit.svg"); title: "选择图片"; }
+                    }
+                    Text { text: "实例  —       类别  —       审核  待开始"; color: Theme.subdued; font-size: 0.76rem; }
+                }
+            }
+        }
+    }
+}

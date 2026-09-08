@@ -1,0 +1,148 @@
+import { Palette } from "std-widgets.slint";
+import { Theme, ViewPage, TrainingDraft, ModelEntry, UiHints } from "theme.slint";
+import { GlassPanel, NavItem, ExpandableNavItem, IconButton } from "components/controls.slint";
+import { AppHeader } from "components/app-header.slint";
+import { GlobalChat } from "components/global-chat.slint";
+import { InferencePage } from "pages/inference.slint";
+import { ModelsPage } from "pages/models.slint";
+import { AnnotationPage } from "pages/annotation.slint";
+import { TrainingPage } from "pages/training.slint";
+import { SettingsPage, AboutPage } from "pages/settings.slint";
+
+export component MainWindow inherits Window {
+    title: "VisionHyperAgent";
+    preferred-width: 1440px;
+    preferred-height: 900px;
+    min-width: 1120px;
+    min-height: 720px;
+    default-font-family: "Noto Sans CJK SC";
+    default-font-size: 14px;
+    background: Theme.background;
+    init => { Palette.color-scheme = ColorScheme.light; }
+
+    in-out property <ViewPage> current-page: ViewPage.inference;
+    in-out property <bool> models-expanded: true;
+    in-out property <string> models-directory;
+    in-out property <[ModelEntry]> model-entries;
+    in-out property <int> selected-model: -1;
+    in-out property <string> chat-draft;
+    in-out property <string> last-message;
+    in-out property <int> source-choice: 0;
+    // Runtime model choice is separate from highlighting a record in the model library.
+    in-out property <string> inference-model-name;
+    in-out property <bool> annotation-grid: true;
+    in-out property <TrainingDraft> training-draft: {
+        epochs: "", batch: "", image-size: "", learning-rate: "", automatic: true,
+    };
+    in-out property <string> feedback;
+    private property <string> page-label:
+        root.current-page == ViewPage.inference ? "运行" :
+        root.current-page == ViewPage.models ? "模型" :
+        root.current-page == ViewPage.annotation ? "标注" :
+        root.current-page == ViewPage.training ? "训练" :
+        root.current-page == ViewPage.settings ? "设置" : "关于";
+    changed current-page => { UiHints.text = ""; }
+    function show-notice(message: string) {
+        root.feedback = message;
+        notice-timer.restart();
+    }
+    notice-timer := Timer {
+        interval: 5s;
+        triggered => { root.feedback = ""; self.stop(); }
+    }
+
+    // Soft ambient gradients beneath translucent surfaces; no OS backdrop blur required.
+    Image { source: @image-url("resources/ui/ambient.svg"); width: 100%; height: 100%; image-fit: fill; }
+    VerticalLayout {
+        spacing: 0px; padding-bottom: 16px;
+        AppHeader {}
+        HorizontalLayout {
+            padding-left: 16px; padding-right: 16px;
+            spacing: 16px;
+            GlassPanel {
+                width: 160px;
+                background: Theme.surface;
+                VerticalLayout {
+                    padding: 10px; padding-top: 16px; spacing: 6px;
+                    NavItem { text: "运行"; icon: @image-url("resources/ui/icons/play.svg"); selected: root.current-page == ViewPage.inference; activated => { root.current-page = ViewPage.inference; } }
+                    Rectangle { height: 14px; }
+                    ExpandableNavItem {
+                        text: "模型"; icon: @image-url("resources/ui/icons/train.svg");
+                        expanded: root.models-expanded;
+                        selected: root.current-page == ViewPage.models ||
+                            (!root.models-expanded && (root.current-page == ViewPage.annotation || root.current-page == ViewPage.training));
+                        activated => { root.current-page = ViewPage.models; }
+                        toggle-expanded => { root.models-expanded = !root.models-expanded; UiHints.text = ""; }
+                    }
+                    if root.models-expanded: NavItem { text: "标注"; nested: true; selected: root.current-page == ViewPage.annotation; activated => { root.current-page = ViewPage.annotation; } }
+                    if root.models-expanded: NavItem { text: "训练"; nested: true; selected: root.current-page == ViewPage.training; activated => { root.current-page = ViewPage.training; } }
+                    Rectangle { vertical-stretch: 1; }
+                    Rectangle { height: 8px; }
+                    NavItem { text: "设置"; icon: @image-url("resources/ui/icons/settings.svg"); selected: root.current-page == ViewPage.settings; activated => { root.current-page = ViewPage.settings; } }
+                    NavItem { text: "关于"; icon: @image-url("resources/ui/icons/about.svg"); selected: root.current-page == ViewPage.about; activated => { root.current-page = ViewPage.about; } }
+                }
+            }
+            Rectangle {
+                horizontal-stretch: 1;
+                if root.current-page == ViewPage.inference: InferencePage {
+                    model-name: root.inference-model-name;
+                    source-choice <=> root.source-choice;
+                    preview-action(message) => { root.show-notice(message); }
+                }
+                if root.current-page == ViewPage.models: ModelsPage {
+                    directory: root.models-directory;
+                    entries: root.model-entries;
+                    selected-index <=> root.selected-model;
+                    preview-action(message) => { root.show-notice(message); }
+                }
+                if root.current-page == ViewPage.annotation: AnnotationPage {
+                    grid-mode <=> root.annotation-grid;
+                    preview-action(message) => { root.show-notice(message); }
+                }
+                if root.current-page == ViewPage.training: TrainingPage {
+                    draft <=> root.training-draft;
+                    preview-action(message) => { root.show-notice(message); }
+                }
+                if root.current-page == ViewPage.settings: SettingsPage { preview-action(message) => { root.show-notice(message); } }
+                if root.current-page == ViewPage.about: AboutPage {}
+            }
+            GlobalChat {
+                width: 284px;
+                context-label: root.page-label;
+                draft <=> root.chat-draft;
+                last-message: root.last-message;
+                clear-history => { root.last-message = ""; }
+                send-message(message) => {
+                    root.last-message = message;
+                    root.chat-draft = "";
+                    root.show-notice("Agent 未连接，消息未发送。");
+                }
+            }
+        }
+    }
+    // Action feedback is transient and absent when idle; there is no permanent status footer.
+    if root.feedback != "": GlassPanel {
+        width: min(480px, root.width - 32px); height: 56px;
+        x: (root.width - self.width) / 2;
+        y: root.height - self.height - 16px;
+        background: Theme.glass-strong;
+        TouchArea {}
+        HorizontalLayout {
+            padding-left: 16px; padding-right: 10px; spacing: 12px;
+            cross-axis-alignment: center;
+            Text { text: root.feedback; color: Theme.text; font-size: 0.86rem; wrap: word-wrap; horizontal-stretch: 1; }
+            IconButton {
+                label: "关闭提示"; icon: @image-url("resources/ui/icons/close.svg");
+                activated => { root.feedback = ""; notice-timer.stop(); }
+            }
+        }
+    }
+    // Render above all pages, so tool hints are not clipped by translucent panels.
+    if UiHints.text != "": Rectangle {
+        x: min(UiHints.x, root.width - self.width - 12px);
+        y: min(UiHints.y, root.height - self.height - 12px);
+        width: hint-label.preferred-width + 20px; height: 28px;
+        background: Theme.text; border-radius: 6px;
+        hint-label := Text { text: UiHints.text; color: white; font-size: 0.76rem; horizontal-alignment: center; vertical-alignment: center; }
+    }
+}

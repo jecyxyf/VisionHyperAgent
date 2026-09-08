@@ -1,0 +1,130 @@
+import { ScrollView } from "std-widgets.slint";
+import { Theme, ModelEntry } from "../theme.slint";
+import { GlassPanel, IconButton } from "../components/controls.slint";
+import { WorkspaceHeader, EmptyState } from "../components/workspace.slint";
+
+// Header and data rows share column geometry, including for long file names.
+component ModelCells inherits Rectangle {
+    in property <ModelEntry> entry;
+    in property <bool> header: false;
+    private property <length> name-width: max(0px, (root.width - 118px) * 0.4);
+    Text {
+        x: 12px; y: 0; width: root.name-width; height: root.height;
+        text: root.entry.name; color: root.header ? Theme.muted : Theme.text;
+        font-size: root.header ? 0.83rem : 0.9rem;
+        vertical-alignment: center; overflow: elide;
+    }
+    Text {
+        x: 28px + root.name-width; y: 0; width: 62px; height: root.height;
+        text: root.entry.format; color: Theme.muted; font-size: 0.8rem;
+        vertical-alignment: center; overflow: elide;
+    }
+    Text {
+        x: 106px + root.name-width; y: 0;
+        width: max(0px, root.width - self.x - 12px); height: root.height;
+        text: root.entry.path; color: root.header ? Theme.muted : Theme.subdued;
+        font-size: 0.8rem; vertical-alignment: center; overflow: elide;
+    }
+}
+
+component ModelRow inherits FocusScope {
+    in property <ModelEntry> entry;
+    in property <bool> selected;
+    callback activated();
+    height: 54px;
+    accessible-role: button;
+    accessible-label: root.entry.name + "，" + root.entry.format + "，" + root.entry.path;
+    accessible-action-default => { root.activated(); }
+    key-pressed(event) => {
+        if event.text == "\n" || event.text == " " {
+            root.activated(); return accept;
+        }
+        return reject;
+    }
+    Rectangle {
+        border-radius: 11px;
+        border-width: 1px; border-color: root.has-focus ? Theme.accent : transparent;
+        background: root.selected ? Theme.selection-gradient : (hit.has-hover ? Theme.surface : transparent);
+        ModelCells { entry: root.entry; }
+        hit := TouchArea { mouse-cursor: pointer; clicked => { root.focus(); root.activated(); } }
+    }
+}
+
+export component ModelsPage inherits Rectangle {
+    in property <string> directory;
+    in property <[ModelEntry]> entries;
+    in-out property <int> selected-index: -1;
+    callback preview-action(string);
+    private property <bool> has-selection: root.selected-index >= 0 && root.selected-index < root.entries.length;
+    VerticalLayout {
+        spacing: 12px;
+        WorkspaceHeader {
+            title: "模型";
+            IconButton {
+                label: "选择模型目录"; icon: @image-url("../resources/ui/icons/folder.svg");
+                activated => { root.preview-action("暂时无法选择模型目录。"); }
+            }
+            IconButton {
+                label: "刷新模型列表"; icon: @image-url("../resources/ui/icons/refresh.svg");
+                activated => { root.preview-action("暂时无法读取模型目录。"); }
+            }
+        }
+        GlassPanel {
+            height: 48px;
+            HorizontalLayout {
+                padding-left: 16px; padding-right: 16px; spacing: 10px;
+                cross-axis-alignment: center;
+                Image { source: @image-url("../resources/ui/icons/folder.svg"); width: 16px; height: 16px; colorize: Theme.muted; }
+                Text {
+                    text: root.directory == "" ? "未选择模型目录" : root.directory;
+                    color: Theme.muted; font-size: 0.9rem; min-width: 0px;
+                    horizontal-stretch: 1; overflow: elide;
+                }
+                Text { text: "\{root.entries.length} 个模型"; color: Theme.subdued; font-size: 0.8rem; }
+            }
+        }
+        GlassPanel {
+            vertical-stretch: 1;
+            VerticalLayout {
+                padding: 16px; spacing: 12px;
+                ModelCells {
+                    height: 24px; header: true;
+                    entry: { name: "模型名称", format: "格式", path: "文件位置" };
+                }
+                Rectangle { height: 1px; background: Theme.border; }
+                if root.entries.length == 0: EmptyState {
+                    vertical-stretch: 1;
+                    icon: @image-url("../resources/ui/icons/train.svg");
+                    title: "暂无模型";
+                }
+                if root.entries.length > 0: ScrollView {
+                    vertical-stretch: 1;
+                    viewport-width: self.width;
+                    VerticalLayout {
+                        spacing: 4px;
+                        for item[index] in root.entries: ModelRow {
+                            entry: item; selected: root.selected-index == index;
+                            activated => { root.selected-index = index; }
+                        }
+                        Rectangle { vertical-stretch: 1; }
+                    }
+                }
+            }
+        }
+        if root.has-selection: GlassPanel {
+            height: 112px;
+            VerticalLayout {
+                padding: 16px; spacing: 10px;
+                Text { text: root.entries[root.selected-index].name; color: Theme.text; font-size: 0.95rem; font-weight: 500; overflow: elide; }
+                Text {
+                    text: root.entries[root.selected-index].path;
+                    color: Theme.muted; font-size: 0.84rem; overflow: elide;
+                }
+                Text {
+                    text: "格式  ·  " + root.entries[root.selected-index].format;
+                    color: Theme.subdued; font-size: 0.78rem;
+                }
+            }
+        }
+    }
+}

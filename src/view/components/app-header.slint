@@ -1,0 +1,81 @@
+import { Theme } from "../theme.slint";
+
+// The masthead is visual identity, not a toolbar: none of its surfaces are buttons.
+export component AppHeader inherits Rectangle {
+    height: 104px;
+    min-width: 0px;
+    preferred-width: 0px;
+    private property <length> title-size: root.width < 1280px ? 1.86rem : 2rem;
+
+    plate := Rectangle {
+        x: 16px; y: 12px; width: parent.width - 32px; height: 78px;
+        border-radius: 19px;
+        background: Theme.header-silver;
+        border-width: 1px; border-color: Theme.header-edge;
+        drop-shadow-blur: 22px;
+        drop-shadow-offset-y: 6px;
+        drop-shadow-color: Theme.header-shadow;
+
+        Rectangle {
+            x: 1px; y: 1px; width: parent.width - 2px; height: parent.height - 2px;
+            border-radius: 18px; clip: true;
+            Image {
+                width: 100%; height: 100%; image-fit: fill;
+                source: @image-url("../resources/ui/header-sheen.svg");
+            }
+        }
+        // An inner highlight gives the silver frame a polished, rounded edge.
+        Rectangle {
+            x: 2px; y: 2px; width: parent.width - 4px; height: parent.height - 4px;
+            border-radius: 17px; border-width: 1px; border-color: Theme.header-edge;
+        }
+        HorizontalLayout {
+            padding-left: 18px; padding-right: 24px;
+            spacing: 18px; cross-axis-alignment: center;
+            Rectangle {
+                width: 122px; height: 50px; border-radius: 13px;
+                background: Theme.header-badge;
+                border-width: 1px; border-color: Theme.header-badge-edge;
+                drop-shadow-blur: 18px; drop-shadow-offset-y: 5px;
+                drop-shadow-color: Theme.header-badge-shadow;
+                Rectangle {
+                    x: 1px; y: 1px; width: parent.width - 2px; height: 22px;
+                    border-radius: 12px;
+                    background: @linear-gradient(180deg, #ffffff32 0%, #ffffff00 100%);
+                }
+                Rectangle {
+                    x: 15px; y: 1px; width: parent.width - 30px; height: 1px;
+                    background: @linear-gradient(90deg, #ffffff00 0%, #fffffff0 50%, #ffffff00 100%);
+                }
+                Text {
+                    text: "Agent";
+                    font-family: "Nimbus Sans";
+                    font-size: 2.05rem; font-weight: 700; font-italic: true;
+                    color: white; horizontal-alignment: center; vertical-alignment: center;
+                }
+            }
+            HorizontalLayout {
+                spacing: 0px; cross-axis-alignment: center;
+                Text {
+                    text: "驱动的视觉模型";
+                    color: Theme.header-ink;
+                    font-size: root.title-size; font-weight: 700;
+                    letter-spacing: 0.3px;
+                }
+                Text {
+                    text: "自动训练";
+                    color: Theme.header-accent;
+                    font-size: root.title-size; font-weight: 700;
+                    letter-spacing: 0.3px;
+                }
+                Text {
+                    text: "及部署平台";
+                    color: Theme.header-ink;
+                    font-size: root.title-size; font-weight: 700;
+                    letter-spacing: 0.3px;
+                }
+            }
+            Rectangle { horizontal-stretch: 1; }
+        }
+    }
+}

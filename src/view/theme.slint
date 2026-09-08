@@ -1,0 +1,56 @@
+export enum ViewPage { inference, models, annotation, training, settings, about }
+
+// Populated by a future directory adapter; the UI never invents model files.
+export struct ModelEntry {
+    name: string,
+    format: string,
+    path: string,
+}
+
+// UI drafts only. No configuration is sent to a business service yet.
+export struct TrainingDraft {
+    epochs: string,
+    batch: string,
+    image-size: string,
+    learning-rate: string,
+    automatic: bool,
+}
+
+export global Theme {
+    // Prismatic glass: saturated background light, translucent surfaces, dark readable ink.
+    out property <color> background: #eeebfa;
+    out property <brush> glass: @linear-gradient(145deg, #ffffffa6 0%, #ffffff68 52%, #ffffff85 100%);
+    out property <color> glass-strong: #fffffff2;
+    out property <color> glass-edge: #ffffffdb;
+    out property <color> surface: #ffffff54;
+    out property <color> elevated: #ffffffbd;
+    out property <brush> canvas: @linear-gradient(145deg, #ffffff70 0%, #ffffff42 100%);
+    out property <color> border: #6552ab28;
+    out property <color> text: #29294e;
+    out property <color> muted: #545579;
+    out property <color> subdued: #686b89;
+    out property <color> accent: #6545ce;
+    out property <color> accent-surface: #e3d5ff9c;
+    out property <color> shadow: #49398223;
+    out property <color> grid: #6651a716;
+    out property <brush> action-gradient: @linear-gradient(125deg, #505be4 0%, #8148d5 58%, #b54cc1 100%);
+    out property <brush> selection-gradient: @linear-gradient(120deg, #d5caffb8 0%, #f4ccf59c 100%);
+    out property <brush> field-gradient: @linear-gradient(145deg, #ffffffbd 0%, #ffffff72 100%);
+    out property <color> action-shadow: #7754cd4a;
+    out property <brush> edge-highlight: @linear-gradient(90deg, #ffffff00 0%, #ffffffed 36%, #d7efff9c 72%, #ffffff00 100%);
+
+    out property <color> header-ink: #30214e;
+    out property <color> header-accent: #a032b7;
+    out property <color> header-edge: #ffffffe8;
+    out property <color> header-shadow: #68438f2e;
+    out property <color> header-badge-edge: #e6cbffdc;
+    out property <color> header-badge-shadow: #8251ce5c;
+    out property <brush> header-silver: @linear-gradient(110deg, #cfdbffe0 0%, #f1d4fdd1 46%, #d6f5f0e0 100%);
+    out property <brush> header-badge: @linear-gradient(125deg, #555cec 0%, #9346d8 56%, #d44ea9 100%);
+}
+
+export global UiHints {
+    in-out property <string> text;
+    in-out property <length> x;
+    in-out property <length> y;
+}

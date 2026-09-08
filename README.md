@@ -4,7 +4,7 @@ Agent 驱动的视觉模型标注、自动训练与离线部署软件。
 
 产品目标是让用户在同一个桌面应用中导入图片，通过与 Agent 交互生成初步标注，修改并确认后，由 Agent 自动训练、调参、评估和选择模型。产出的模型可在本机离线运行，接收相机图像或外部程序传入的图片并返回识别结果。
 
-> **当前阶段：工程骨架初始化。** 已建立单 Cargo 包、Rust 分层模块入口和配套目录。当前程序仅输出终端提示，尚未实现 Slint 界面、Codex、训练、推理、相机或通信功能；未安装训练环境或下载模型。
+> **当前阶段：原生 Slint 界面初版。** 已建立工程骨架及运行、模型库及模型分组（标注、训练）、设置、关于和全局聊天面板，可使用项目内 Slint Viewer 预览。Rust 主程序仍为终端骨架，尚未连接界面或业务服务；未安装训练环境或下载模型。
 
 ## 运行与检查骨架
 
@@ -36,9 +36,55 @@ mkdir -p bin/linux
 cp depoly/target/debug/vision-hyper-agent bin/linux/
 ```
 
+### 原生 Slint 界面预览
+
+从项目根目录运行：
+
+```sh
+depoly/tools/slint/bin/slint-viewer --check src/view/main.slint
+depoly/tools/slint/bin/slint-viewer --auto-reload src/view/main.slint
+```
+
+界面入口为 `src/view/main.slint`，主题在 `theme.slint`，页面与通用组件分别位于 `pages/`、`components/`。首页已移除，默认进入运行页：
+
+```text
+运行
+模型
+  标注
+  训练
+设置
+关于
+```
+
+- **运行**：图像结果画布、模型选择、图像源配置、单次推理和识别记录；不单独放置网络触发按钮，外部图片仍从图像源配置进入。图像结果区不显示“未就绪”，底部并列显示图像源与模型名称；未选择模型时显示“未选择”，长名称省略显示。
+- **模型**：“模型”与右侧箭头共用一个背景和圆角，视觉上为完整导航项；点击文字进入模型库，点击箭头只展开／折叠子导航，不改变当前页面。模型库提供目录、刷新入口，以及名称／格式／路径列表和选中详情。目录扫描尚未接入，默认不显示虚构模型。
+- **标注**：顶部打开目录入口，批量浏览与逐图标注两种布局。
+- **训练**：参数草稿、Agent 自动调参选项、效果曲线空状态和任务日志区。
+- **视觉**：全局采用绚彩渐变磨砂风格，以蓝紫、洋红、青色和蜜桃色形成背景光色；导航、按钮、表格、曲线和输入框统一使用半透明表面、玻璃高光与渐变选中态。顶部保留 26–28px 强字重中文标题和渐变 Agent 铭牌，组件为 `src/view/components/app-header.slint`。磨砂感由柔化背景与半透明表面实现，不依赖操作系统背景模糊。界面不显示“实例分割”字样，首版业务范围不变。
+- **聊天**：Agent 标题栏仅保留清除聊天记录按钮，不显示连接状态和设置入口；清除本地记录不清空输入草稿，连接配置仍在左侧设置页。
+- **文案**：不显示常驻的工作区名称、版本号、开发说明与重复引导。保留控件名称、数据与必要连接状态；操作反馈使用可关闭、5 秒后自动消失的提示。未连接 Agent 的本地消息明确标记“未发送”，不伪装发送成功。
+- **状态**：切页保留聊天输入、最近一条本地消息、训练参数草稿、标注浏览模式及图像源选项。未接入的操作会明确提示；不会读取目录、调用模型或启动网络监听。参数草稿尚无业务校验与持久化。
+
+生成并检查全部页面与两种标注布局（1440 × 900、1120 × 720），以及折叠导航、模型列表测试夹具和长消息截图：
+
+```sh
+python3 depoly/tests/ui_preview.py
+```
+
+截图保存在 `depoly/target/ui-preview/light/`。脚本仅依赖 Python 标准库和项目内 Slint Viewer，检查编译、渲染退出状态与截图尺寸；视觉布局需要查看截图。单页截图：
+
+```sh
+mkdir -p depoly/target/ui-preview
+depoly/tools/slint/bin/slint-viewer --screenshot depoly/target/ui-preview/run-light.png src/view/main.slint
+```
+
+本次已在 Linux Slint Viewer 1.17.1 检查上述截图，并以原生窗口验证导航、本地图像源选择、标注布局切换、训练参数切页保留和聊天发送。另外验证了模型页导航、列表选中、鼠标／键盘折叠，以及折叠时保留当前页面与草稿。模型列表夹具只用于布局测试，不是已读取的本地模型。另已验证操作反馈按需出现、5 秒后自动消失且不影响聊天草稿。本轮还验证了清除聊天记录、重复清除和切页后草稿保留。以上不代表 Windows、Rust 宿主或业务流程已验证。
+
 ### 尚未接入的部分
 
-`src/view/`、`depoly/packaging/python/`、资源和打包目录目前只有占位内容。产品资源统一保留在 `src/view/resources/`，其中 `ui/` 用于界面资源，`agent/` 保留产品 Agent 资源占位。`build.rs`、`depoly/packaging/python/pyproject.toml` 及对应功能依赖将在实际接入时添加，不提供空的训练或界面实现。
+项目内已准备 Slint 1.17.1 的 `slint-viewer`、`slint-lsp`，具体路径和临时 PATH 用法见[开发工具说明](depoly/tools/slint/README.md)。它们只用于开发与验证，没有修改全局 PATH，也没有启用 MCP。
+
+`src/view/` 已包含实际 Slint 界面与自绘 SVG 资源；`depoly/packaging/python/` 和打包目录仍为占位。产品资源统一保留在 `src/view/resources/`，其中 `ui/` 用于界面资源，`agent/` 保留产品 Agent 资源占位。`build.rs`、`depoly/packaging/python/pyproject.toml` 及对应功能依赖将在实际接入时添加，不提供虚假的训练实现。
 
 [src/depends/](src/depends/README.md) 用于管理第三方依赖来源与受控材料，目前没有下载任何依赖。`depoly/` 集中放置打包内容、开发辅助工具、集成测试和编译缓存，不是独立后端程序。
 
@@ -96,7 +142,7 @@ cp depoly/target/debug/vision-hyper-agent bin/linux/
 - [仓库 Agent 指引](AGENTS.md)：维护本仓库的 Agent 应遵守的约束。
 - [团队编码规范](docs/团队编码规范.md)：Rust、Python、Slint 编码与团队协作要求。
 
-产品需求文档是 **PRD，不是代码实施计划**。当前只完成工程骨架，后续业务模块设计与实现需要按用户明确的范围继续推进。
+产品需求文档是 **PRD，不是代码实施计划**。当前已完成工程骨架与独立预览的界面初版，后续 Rust 宿主及业务接入仍按用户明确范围推进。
 
 ## 许可证
 

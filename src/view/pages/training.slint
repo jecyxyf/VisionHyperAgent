@@ -1,0 +1,68 @@
+import { ScrollView, CheckBox } from "std-widgets.slint";
+import { Theme, TrainingDraft } from "../theme.slint";
+import { GlassPanel, IconButton, ToolbarDivider, DraftField } from "../components/controls.slint";
+import { WorkspaceHeader, EmptyChart } from "../components/workspace.slint";
+
+export component TrainingPage inherits Rectangle {
+    callback preview-action(string);
+    in-out property <TrainingDraft> draft;
+    VerticalLayout {
+        spacing: 12px;
+        WorkspaceHeader {
+            title: "训练";
+            IconButton { label: "Agent 建议参数"; icon: @image-url("../resources/ui/icons/spark.svg"); activated => { root.preview-action("Agent 未连接，无法生成参数建议。"); } }
+            ToolbarDivider {}
+            IconButton { label: "停止训练"; icon: @image-url("../resources/ui/icons/stop.svg"); activated => { root.preview-action("没有正在执行的训练任务。"); } }
+            IconButton { label: "开始训练"; icon: @image-url("../resources/ui/icons/play.svg"); primary: true; activated => { root.preview-action("训练功能暂不可用。"); } }
+        }
+        HorizontalLayout {
+            spacing: 12px;
+            GlassPanel {
+                width: 210px;
+                VerticalLayout {
+                    padding: 16px; spacing: 14px;
+                    Text { text: "训练参数"; color: Theme.text; font-size: 0.95rem; font-weight: 600; }
+                    Text { text: "未选择数据集"; color: Theme.subdued; font-size: 0.78rem; wrap: word-wrap; }
+                    Rectangle { height: 1px; background: Theme.border; }
+                    ScrollView {
+                        vertical-stretch: 1;
+                        viewport-width: self.width;
+                        VerticalLayout {
+                            spacing: 14px;
+                            DraftField { label: "训练轮数  /  Epochs"; value <=> root.draft.epochs; }
+                            DraftField { label: "批次大小  /  Batch"; value <=> root.draft.batch; }
+                            DraftField { label: "图像尺寸  /  Image size"; value <=> root.draft.image-size; }
+                            DraftField { label: "学习率  /  Learning rate"; value <=> root.draft.learning-rate; }
+                            Rectangle { height: 1px; background: Theme.border; }
+                            CheckBox { text: "Agent 自动调参"; checked <=> root.draft.automatic; }
+                            Rectangle { vertical-stretch: 1; }
+                        }
+                    }
+                }
+            }
+            VerticalLayout {
+                spacing: 12px;
+                GlassPanel {
+                    vertical-stretch: 1;
+                    VerticalLayout {
+                        padding: 16px; spacing: 12px;
+                        HorizontalLayout {
+                            Text { text: "训练效果"; color: Theme.text; font-size: 0.95rem; font-weight: 600; horizontal-stretch: 1; }
+                            Text { text: "未开始"; color: Theme.subdued; font-size: 0.78rem; }
+                        }
+                        EmptyChart { title: "损失  /  Loss"; detail: "暂无数据"; vertical-stretch: 1; }
+                        EmptyChart { title: "评估指标"; detail: "暂无数据"; vertical-stretch: 1; }
+                    }
+                }
+                GlassPanel {
+                    height: 114px;
+                    VerticalLayout {
+                        padding: 16px; spacing: 10px;
+                        Text { text: "任务日志"; color: Theme.text; font-size: 0.9rem; font-weight: 500; }
+                        Text { text: "暂无日志"; color: Theme.subdued; font-size: 0.79rem; wrap: word-wrap; }
+                    }
+                }
+            }
+        }
+    }
+}

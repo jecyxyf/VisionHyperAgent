@@ -1,0 +1,10 @@
+{
+  "repository": "https://github.com/slint-ui/ai-plugins",
+  "revision": "7e8abaf7450b5e10edce88c703c4283a570e0e44",
+  "reference_branch": "master",
+  "source_path": "skills/slint",
+  "install_scope": "project",
+  "installed_on": "2026-09-07",
+  "license_expression": "GPL-3.0-only OR LicenseRef-Slint-Royalty-free-2.0 OR LicenseRef-Slint-Software-3.0",
+  "license_source": "Upstream README.md at the recorded revision"
+}

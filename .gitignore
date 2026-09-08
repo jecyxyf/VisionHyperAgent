@@ -23,6 +23,12 @@ debug
 # Local build outputs collected for each platform
 /bin/
 
+# Project-local Slint development binaries and bundled license files
+/depoly/tools/slint/bin/
+
+# Local visual brainstorming screens and private session state
+/.superpowers/
+
 # Third-party dependency downloads, caches and prebuilt artifacts
 /src/depends/downloads/
 /src/depends/cache/

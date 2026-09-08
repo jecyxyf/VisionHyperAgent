@@ -1,0 +1,47 @@
+{
+  "version": "1.17.1",
+  "platform": "x86_64-unknown-linux-gnu",
+  "source_release": "https://github.com/slint-ui/slint/releases/tag/v1.17.1",
+  "installed_on": "2026-09-07",
+  "scope": "project-development-tools",
+  "tools": {
+    "slint-lsp": {
+      "executable": "bin/slint-lsp",
+      "archive_url": "https://github.com/slint-ui/slint/releases/download/v1.17.1/slint-lsp-x86_64-unknown-linux-gnu.tar.gz",
+      "archive_sha256": "6f363163c4deafea085191c2c3cb80d8af8a71510370dac6a1dca21177b571fa",
+      "installed_files": [
+        {
+          "path": "bin/slint-lsp",
+          "sha256": "dd22bf663fb2db04307bf2c0aecd5c46d882759c4661c8abf1dd2f53f05dc2af"
+        },
+        {
+          "path": "bin/licenses/slint-lsp/THIRDPARTY.md",
+          "sha256": "e56804f7d50a8980bd5cafb87beb0648fcd790e328fd4f64959cb9de435cc14f"
+        },
+        {
+          "path": "bin/licenses/slint-lsp/LICENSE.md",
+          "sha256": "284f5b8f5bded22952d3a8d7290f2cd172423913d52e28f6e9799a8042c910fa"
+        }
+      ]
+    },
+    "slint-viewer": {
+      "executable": "bin/slint-viewer",
+      "archive_url": "https://github.com/slint-ui/slint/releases/download/v1.17.1/slint-viewer-x86_64-unknown-linux-gnu.tar.gz",
+      "archive_sha256": "79d1d1121d12b2933e1aa714881d17e163b18f81930e87379ac4ef302eaac4b7",
+      "installed_files": [
+        {
+          "path": "bin/licenses/slint-viewer/THIRDPARTY.md",
+          "sha256": "5aed6aea8eaffbf4e3999315851c26c25378fc87c735bd049a0fe5f69ccc6517"
+        },
+        {
+          "path": "bin/licenses/slint-viewer/LICENSE.md",
+          "sha256": "284f5b8f5bded22952d3a8d7290f2cd172423913d52e28f6e9799a8042c910fa"
+        },
+        {
+          "path": "bin/slint-viewer",
+          "sha256": "6334d6b34f1308f441f5667bb2cf2899b7bc0ce75548216de5cf1396d0c31380"
+        }
+      ]
+    }
+  }
+}

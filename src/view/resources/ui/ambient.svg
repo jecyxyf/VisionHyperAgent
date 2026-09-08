@@ -1,0 +1,19 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1600" height="1000" viewBox="0 0 1600 1000">
+  <defs>
+    <radialGradient id="violet"><stop stop-color="#7870f5" stop-opacity=".92"/><stop offset=".52" stop-color="#ada8fc" stop-opacity=".64"/><stop offset="1" stop-color="#bfc6ff" stop-opacity="0"/></radialGradient>
+    <radialGradient id="pink"><stop stop-color="#f35fc5" stop-opacity=".8"/><stop offset=".55" stop-color="#ffade6" stop-opacity=".54"/><stop offset="1" stop-color="#ffc6ed" stop-opacity="0"/></radialGradient>
+    <radialGradient id="cyan"><stop stop-color="#43d8e9" stop-opacity=".88"/><stop offset=".6" stop-color="#90eaf1" stop-opacity=".63"/><stop offset="1" stop-color="#c3f7f3" stop-opacity="0"/></radialGradient>
+    <radialGradient id="peach"><stop stop-color="#ffad78" stop-opacity=".86"/><stop offset=".55" stop-color="#ffd1a5" stop-opacity=".58"/><stop offset="1" stop-color="#fff0dc" stop-opacity="0"/></radialGradient>
+    <radialGradient id="light"><stop stop-color="#ffffff" stop-opacity=".64"/><stop offset="1" stop-color="#ffffff" stop-opacity="0"/></radialGradient>
+    <linearGradient id="ribbon" x1="0" y1="1000" x2="1600" y2="0" gradientUnits="userSpaceOnUse"><stop stop-color="#55dfea" stop-opacity=".08"/><stop offset=".47" stop-color="#aea5ff" stop-opacity=".2"/><stop offset="1" stop-color="#ffa4df" stop-opacity=".16"/></linearGradient>
+    <filter id="soft" x="-20%" y="-40%" width="140%" height="180%"><feGaussianBlur stdDeviation="26"/></filter>
+  </defs>
+  <rect width="1600" height="1000" fill="#eeebfa"/>
+  <ellipse cx="120" cy="120" rx="1000" ry="790" fill="url(#violet)"/>
+  <ellipse cx="1430" cy="170" rx="920" ry="740" fill="url(#pink)"/>
+  <ellipse cx="30" cy="980" rx="1040" ry="780" fill="url(#cyan)"/>
+  <ellipse cx="1520" cy="1040" rx="920" ry="810" fill="url(#peach)"/>
+  <ellipse cx="780" cy="450" rx="650" ry="620" fill="url(#light)"/>
+  <path d="M-100 1040C320 240 760 1150 1720 80" stroke="url(#ribbon)" stroke-width="230" fill="none" filter="url(#soft)"/>
+  <path d="M-160 860C450 190 780 1000 1760 40" stroke="#ffffff" stroke-opacity=".2" stroke-width="44" fill="none" filter="url(#soft)"/>
+</svg>
