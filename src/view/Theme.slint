@@ -1,21 +1,3 @@
-export enum ViewPage { inference, models, annotation, training, settings, about }
-
-// Populated by a future directory adapter; the UI never invents model files.
-export struct ModelEntry {
-    name: string,
-    format: string,
-    path: string,
-}
-
-// UI drafts only. No configuration is sent to a business service yet.
-export struct TrainingDraft {
-    epochs: string,
-    batch: string,
-    image-size: string,
-    learning-rate: string,
-    automatic: bool,
-}
-
 export global Theme {
     // Prismatic glass: saturated background light, translucent surfaces, dark readable ink.
     out property <color> background: #eeebfa;
@@ -47,10 +29,4 @@ export global Theme {
     out property <color> header-badge-shadow: #8251ce5c;
     out property <brush> header-silver: @linear-gradient(110deg, #cfdbffe0 0%, #f1d4fdd1 46%, #d6f5f0e0 100%);
     out property <brush> header-badge: @linear-gradient(125deg, #555cec 0%, #9346d8 56%, #d44ea9 100%);
-}
-
-export global UiHints {
-    in-out property <string> text;
-    in-out property <length> x;
-    in-out property <length> y;
 }

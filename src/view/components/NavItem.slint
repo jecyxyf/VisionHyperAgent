@@ -1,0 +1,49 @@
+import { Theme } from "../Theme.slint";
+
+export component NavItem inherits FocusScope {
+    in property <string> text;
+    in property <image> icon;
+    in property <bool> selected: false;
+    in property <bool> nested: false;
+    callback activated();
+    height: 40px;
+    accessible-role: button;
+    accessible-label: root.nested ? "模型 / " + root.text : root.text;
+    accessible-action-default => { root.activated(); }
+    key-pressed(event) => {
+        if event.text == "\n" || event.text == " " {
+            root.activated(); return accept;
+        }
+        return reject;
+    }
+    Rectangle {
+        border-radius: 12px;
+        background: root.selected ? Theme.action-gradient : (hit.has-hover ? Theme.elevated : transparent);
+        border-width: 1px;
+        border-color: root.has-focus ? Theme.accent : (root.selected ? Theme.glass-edge : transparent);
+        drop-shadow-blur: root.selected ? 18px : 0px;
+        drop-shadow-offset-y: 2px;
+        drop-shadow-color: root.selected ? Theme.action-shadow : transparent;
+        HorizontalLayout {
+            padding-left: root.nested ? 35px : 12px;
+            padding-right: 12px;
+            spacing: 10px;
+            cross-axis-alignment: center;
+            if !root.nested: Image {
+                width: 17px; height: 17px; source: root.icon;
+                colorize: root.selected ? white : Theme.muted;
+            }
+            if root.nested: Rectangle {
+                width: 4px; height: 4px; border-radius: 2px;
+                background: root.selected ? white : Theme.border;
+            }
+            Text {
+                text: root.text; color: root.selected ? white : Theme.muted;
+                font-size: 1rem; font-weight: root.selected ? 600 : 500;
+                vertical-alignment: center; horizontal-stretch: 1;
+            }
+            if root.selected: Rectangle { width: 3px; height: 14px; border-radius: 2px; background: #ffffffcf; }
+        }
+        hit := TouchArea { mouse-cursor: pointer; clicked => { root.focus(); root.activated(); } }
+    }
+}

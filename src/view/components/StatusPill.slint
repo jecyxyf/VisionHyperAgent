@@ -1,0 +1,16 @@
+import { Theme } from "../Theme.slint";
+
+export component StatusPill inherits Rectangle {
+    in property <string> text;
+    width: 74px;
+    height: 24px;
+    border-radius: 12px;
+    background: Theme.field-gradient;
+    border-width: 1px; border-color: Theme.glass-edge;
+    HorizontalLayout {
+        padding-left: 9px; padding-right: 9px; spacing: 6px;
+        cross-axis-alignment: center;
+        Rectangle { width: 4px; height: 4px; border-radius: 2px; background: Theme.subdued; }
+        Text { text: root.text; color: Theme.muted; font-size: 0.76rem; vertical-alignment: center; }
+    }
+}

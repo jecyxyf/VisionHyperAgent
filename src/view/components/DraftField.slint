@@ -1,0 +1,30 @@
+import { Theme } from "../Theme.slint";
+
+export component DraftField inherits Rectangle {
+    in property <string> label;
+    in property <string> placeholder: "由 Agent 建议";
+    in-out property <string> value;
+    height: 66px;
+    VerticalLayout {
+        spacing: 6px;
+        Text { text: root.label; color: Theme.muted; font-size: 0.82rem; }
+        Rectangle {
+            height: 34px;
+            background: Theme.field-gradient; border-radius: 10px;
+            border-width: 1px; border-color: field.has-focus ? Theme.accent : Theme.border;
+            HorizontalLayout {
+                padding-left: 10px; padding-right: 10px;
+                field := TextInput {
+                    text <=> root.value; single-line: true;
+                    color: Theme.text; font-size: 0.88rem;
+                    vertical-alignment: center; accessible-label: root.label;
+                }
+            }
+            if root.value == "": Text {
+                x: 10px; y: 0; height: parent.height;
+                text: root.placeholder; color: Theme.subdued; font-size: 0.83rem;
+                vertical-alignment: center;
+            }
+        }
+    }
+}

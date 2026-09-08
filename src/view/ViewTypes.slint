@@ -1,0 +1,24 @@
+export enum ViewPage { inference, models, preannotation, annotation, pretraining, training, settings, about }
+
+// Populated by a future directory adapter; the UI never invents model files.
+export struct ModelEntry {
+    name: string,
+    format: string,
+    path: string,
+}
+
+export struct FeatureDraft {
+    target: string,
+    appearance: string,
+    distinctions: string,
+    exclusions: string,
+}
+
+// UI drafts only. No configuration is sent to a business service yet.
+export struct TrainingDraft {
+    epochs: string,
+    batch: string,
+    image-size: string,
+    learning-rate: string,
+    automatic: bool,
+}

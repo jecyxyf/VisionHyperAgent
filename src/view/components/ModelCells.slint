@@ -1,0 +1,26 @@
+import { ModelEntry } from "../ViewTypes.slint";
+import { Theme } from "../Theme.slint";
+
+// Header and data rows share column geometry, including for long file names.
+export component ModelCells inherits Rectangle {
+    in property <ModelEntry> entry;
+    in property <bool> header: false;
+    private property <length> name-width: max(0px, (root.width - 118px) * 0.4);
+    Text {
+        x: 12px; y: 0; width: root.name-width; height: root.height;
+        text: root.entry.name; color: root.header ? Theme.muted : Theme.text;
+        font-size: root.header ? 0.83rem : 0.9rem;
+        vertical-alignment: center; overflow: elide;
+    }
+    Text {
+        x: 28px + root.name-width; y: 0; width: 62px; height: root.height;
+        text: root.entry.format; color: Theme.muted; font-size: 0.8rem;
+        vertical-alignment: center; overflow: elide;
+    }
+    Text {
+        x: 106px + root.name-width; y: 0;
+        width: max(0px, root.width - self.x - 12px); height: root.height;
+        text: root.entry.path; color: root.header ? Theme.muted : Theme.subdued;
+        font-size: 0.8rem; vertical-alignment: center; overflow: elide;
+    }
+}

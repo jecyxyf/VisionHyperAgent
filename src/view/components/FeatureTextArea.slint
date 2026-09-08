@@ -1,0 +1,26 @@
+import { Theme } from "../Theme.slint";
+import { TextEdit } from "std-widgets.slint";
+
+export component FeatureTextArea inherits Rectangle {
+    in property <string> label;
+    in property <string> placeholder;
+    in-out property <string> value;
+    VerticalLayout {
+        spacing: 6px;
+        Text { text: root.label; color: Theme.muted; font-size: 0.86rem; }
+        Rectangle {
+            vertical-stretch: 1;
+            background: Theme.field-gradient; border-radius: 10px;
+            border-width: 1px; border-color: Theme.border; clip: true;
+            TextEdit {
+                x: 1px; y: 1px; width: parent.width - 2px; height: parent.height - 2px;
+                text <=> root.value; wrap: word-wrap; accessible-label: root.label;
+            }
+            if root.value == "": Text {
+                x: 12px; y: 10px; width: parent.width - 24px;
+                text: root.placeholder; color: Theme.subdued; font-size: 0.82rem;
+                wrap: word-wrap;
+            }
+        }
+    }
+}

@@ -28,20 +28,20 @@ depoly/tools/slint/bin/slint-lsp --version
 PATH="$PWD/depoly/tools/slint/bin:$PATH" slint-viewer --version
 ```
 
-当前界面入口为 `src/view/main.slint`，以下命令从项目根目录运行。
+当前界面入口为 `src/view/MainWindow.slint`，以下命令从项目根目录运行。
 
 | 操作 | 命令形式 |
 | --- | --- |
-| 检查界面 | `slint-viewer --check src/view/main.slint` |
-| 实时预览 | `slint-viewer --auto-reload src/view/main.slint` |
-| 无窗口截图 | `slint-viewer --screenshot depoly/target/ui-preview/run-light.png src/view/main.slint` |
+| 检查界面 | `slint-viewer --check src/view/MainWindow.slint` |
+| 实时预览 | `slint-viewer --auto-reload src/view/MainWindow.slint` |
+| 无窗口截图 | `slint-viewer --screenshot depoly/target/ui-preview/run-light.png src/view/MainWindow.slint` |
 
 截图前先执行 `mkdir -p depoly/target/ui-preview`。使用这些短命令时，同样通过命令级 PATH 或完整工具路径调用。不要为方便使用而把工具复制到 `~/.local/bin`、`~/.cargo/bin` 或修改 shell 启动配置。
 
 ## 本次验证与边界
 
 - 两个工具均能启动并报告版本 1.17.1。
-- `slint-viewer --check src/view/main.slint` 已通过原生界面编译检查。
+- `slint-viewer --check src/view/MainWindow.slint` 已通过原生界面编译检查。
 - 无窗口截图自检成功，生成并检查了 160 × 90 的探针图片。
 - 自检文件位于 `depoly/target/slint-tools-check/`，不是产品界面，也不加入源码。
 - LSP 已验证启动版本，尚未配置具体编辑器或执行完整的 LSP 交互验收。

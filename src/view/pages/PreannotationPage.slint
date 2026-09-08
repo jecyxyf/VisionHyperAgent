@@ -1,0 +1,90 @@
+import { FeatureDraft } from "../ViewTypes.slint";
+import { WorkspaceHeader } from "../components/WorkspaceHeader.slint";
+import { IconButton } from "../components/IconButton.slint";
+import { ToolbarDivider } from "../components/ToolbarDivider.slint";
+import { GlassPanel } from "../components/GlassPanel.slint";
+import { Theme } from "../Theme.slint";
+import { ScrollView } from "std-widgets.slint";
+import { DraftField } from "../components/DraftField.slint";
+import { FeatureTextArea } from "../components/FeatureTextArea.slint";
+import { EmptyState } from "../components/EmptyState.slint";
+
+export component PreannotationPage inherits Rectangle {
+    in-out property <FeatureDraft> draft;
+    in property <string> analysis;
+    in property <string> rules;
+    in property <bool> confirmed;
+    callback request-analysis();
+    callback confirm-rules();
+    callback continue-annotation();
+    VerticalLayout {
+        spacing: 12px;
+        WorkspaceHeader {
+            title: "预标注";
+            IconButton { label: "分析特征"; icon: @image-url("../resources/ui/icons/spark.svg"); primary: true; activated => { root.request-analysis(); } }
+            IconButton { label: "确认标注规则"; icon: @image-url("../resources/ui/icons/check.svg"); selected: root.confirmed; activated => { root.confirm-rules(); } }
+            ToolbarDivider {}
+            IconButton { label: "进入标注"; icon: @image-url("../resources/ui/icons/next.svg"); activated => { root.continue-annotation(); } }
+        }
+        HorizontalLayout {
+            spacing: 12px;
+            GlassPanel {
+                width: 300px;
+                VerticalLayout {
+                    padding: 16px; spacing: 14px;
+                    Text { text: "特征描述"; color: Theme.text; font-size: 1rem; font-weight: 600; }
+                    ScrollView {
+                        vertical-stretch: 1;
+                        viewport-width: self.width;
+                        VerticalLayout {
+                            spacing: 14px;
+                            DraftField { label: "识别目标"; placeholder: "需要识别什么对象"; value <=> root.draft.target; }
+                            FeatureTextArea { height: 140px; label: "外观与关键特征"; placeholder: "形状、颜色、纹理、边界…"; value <=> root.draft.appearance; }
+                            FeatureTextArea { height: 108px; label: "类别区别"; placeholder: "如何区分类似对象"; value <=> root.draft.distinctions; }
+                            FeatureTextArea { height: 108px; label: "排除情况"; placeholder: "哪些情况不应标注"; value <=> root.draft.exclusions; }
+                            Rectangle { vertical-stretch: 1; }
+                        }
+                    }
+                }
+            }
+            VerticalLayout {
+                spacing: 12px;
+                GlassPanel {
+                    vertical-stretch: 1;
+                    VerticalLayout {
+                        padding: 16px; spacing: 12px;
+                        Text { text: "Agent 分析"; color: Theme.text; font-size: 1rem; font-weight: 600; }
+                        if root.analysis == "": EmptyState { icon: @image-url("../resources/ui/icons/spark.svg"); title: "等待分析"; vertical-stretch: 1; }
+                        if root.analysis != "": ScrollView {
+                            vertical-stretch: 1;
+                            viewport-width: self.width;
+                            VerticalLayout {
+                                Text { text: root.analysis; color: Theme.text; font-size: 0.95rem; wrap: word-wrap; }
+                                Rectangle { vertical-stretch: 1; }
+                            }
+                        }
+                    }
+                }
+                GlassPanel {
+                    vertical-stretch: 1;
+                    VerticalLayout {
+                        padding: 16px; spacing: 12px;
+                        HorizontalLayout {
+                            Text { text: "标注规则"; color: Theme.text; font-size: 1rem; font-weight: 600; horizontal-stretch: 1; }
+                            if root.confirmed: Text { text: "已确认"; color: Theme.accent; font-size: 0.84rem; }
+                        }
+                        if root.rules == "": EmptyState { icon: @image-url("../resources/ui/icons/check.svg"); title: "等待规则"; vertical-stretch: 1; }
+                        if root.rules != "": ScrollView {
+                            vertical-stretch: 1;
+                            viewport-width: self.width;
+                            VerticalLayout {
+                                Text { text: root.rules; color: Theme.text; font-size: 0.95rem; wrap: word-wrap; }
+                                Rectangle { vertical-stretch: 1; }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+}

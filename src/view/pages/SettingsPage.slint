@@ -1,0 +1,29 @@
+import { WorkspaceHeader } from "../components/WorkspaceHeader.slint";
+import { IconButton } from "../components/IconButton.slint";
+import { GlassPanel } from "../components/GlassPanel.slint";
+import { Theme } from "../Theme.slint";
+import { InfoRow } from "../components/InfoRow.slint";
+
+export component SettingsPage inherits Rectangle {
+    callback preview-action(string);
+    VerticalLayout {
+        spacing: 12px;
+        WorkspaceHeader {
+            title: "设置";
+            IconButton { label: "配置连接"; icon: @image-url("../resources/ui/icons/settings.svg"); activated => { root.preview-action("连接配置暂不可用。"); } }
+        }
+        GlassPanel {
+            height: 282px;
+            VerticalLayout {
+                padding: 16px; spacing: 4px;
+                Text { text: "连接与运行环境"; color: Theme.text; font-size: 0.95rem; font-weight: 600; }
+                InfoRow { label: "大模型服务"; value: "未配置"; }
+                InfoRow { label: "Codex"; value: "未连接"; }
+                InfoRow { label: "Python 训练环境"; value: "未安装"; }
+                InfoRow { label: "NVIDIA 设备"; value: "未检测"; }
+                InfoRow { label: "外部通信"; value: "ZeroMQ · 未连接"; }
+            }
+        }
+        Rectangle { vertical-stretch: 1; }
+    }
+}

@@ -1,0 +1,22 @@
+import { Theme } from "../Theme.slint";
+
+export component EmptyChart inherits Rectangle {
+    in property <string> title;
+    in property <string> detail;
+    background: Theme.field-gradient; border-radius: 14px;
+    border-width: 1px; border-color: Theme.border;
+    VerticalLayout {
+        padding: 18px; spacing: 16px;
+        HorizontalLayout {
+            Text { text: root.title; color: Theme.text; font-size: 0.88rem; font-weight: 500; }
+            Rectangle { horizontal-stretch: 1; }
+        }
+        plot := Rectangle {
+            vertical-stretch: 1;
+            for i in 5: Rectangle { x: 0; y: i * (parent.height - 1px) / 4; height: 1px; width: parent.width; background: Theme.grid; }
+            for i in 7: Rectangle { y: 0; x: i * (parent.width - 1px) / 6; width: 1px; height: parent.height; background: Theme.grid; }
+            Text { text: root.detail; color: Theme.subdued; font-size: 0.82rem; horizontal-alignment: center; vertical-alignment: center; }
+        }
+        Text { text: "Epoch"; color: Theme.subdued; font-size: 0.72rem; horizontal-alignment: right; }
+    }
+}

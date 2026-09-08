@@ -1,0 +1,18 @@
+import { WorkspaceHeader } from "../components/WorkspaceHeader.slint";
+import { GlassPanel } from "../components/GlassPanel.slint";
+import { EmptyState } from "../components/EmptyState.slint";
+
+// The page is reserved; pretraining's actual workflow has not been specified yet.
+export component PretrainingPage inherits Rectangle {
+    VerticalLayout {
+        spacing: 12px;
+        WorkspaceHeader { title: "预训练"; }
+        GlassPanel {
+            vertical-stretch: 1;
+            EmptyState {
+                icon: @image-url("../resources/ui/icons/train.svg");
+                title: "暂无预训练任务";
+            }
+        }
+    }
+}

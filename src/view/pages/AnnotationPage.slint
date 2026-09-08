@@ -1,6 +1,10 @@
-import { Theme } from "../theme.slint";
-import { GlassPanel, IconButton, ToolbarDivider } from "../components/controls.slint";
-import { WorkspaceHeader, EmptyState, GridCanvas } from "../components/workspace.slint";
+import { WorkspaceHeader } from "../components/WorkspaceHeader.slint";
+import { IconButton } from "../components/IconButton.slint";
+import { ToolbarDivider } from "../components/ToolbarDivider.slint";
+import { GlassPanel } from "../components/GlassPanel.slint";
+import { Theme } from "../Theme.slint";
+import { EmptyState } from "../components/EmptyState.slint";
+import { GridCanvas } from "../components/GridCanvas.slint";
 
 export component AnnotationPage inherits Rectangle {
     callback preview-action(string);

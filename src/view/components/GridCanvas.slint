@@ -1,0 +1,11 @@
+import { Theme } from "../Theme.slint";
+
+export component GridCanvas inherits Rectangle {
+    border-radius: 14px;
+    background: Theme.canvas;
+    border-width: 1px; border-color: Theme.border;
+    clip: true;
+    for i in 36: Rectangle { x: i * 32px; y: 0; width: 1px; height: parent.height; background: Theme.grid; }
+    for i in 36: Rectangle { x: 0; y: i * 32px; width: parent.width; height: 1px; background: Theme.grid; }
+    @children
+}

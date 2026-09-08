@@ -1,0 +1,20 @@
+import { Theme } from "../Theme.slint";
+
+export component EmptyState inherits Rectangle {
+    in property <image> icon;
+    in property <string> title;
+    in property <string> detail;
+    VerticalLayout {
+        alignment: center; spacing: 12px; padding: 16px;
+        Rectangle {
+            height: 60px;
+            Rectangle {
+                width: 60px; height: 60px; border-radius: 18px;
+                background: Theme.selection-gradient; border-width: 1px; border-color: Theme.glass-edge;
+                Image { width: 26px; height: 26px; source: root.icon; colorize: Theme.action-gradient; }
+            }
+        }
+        Text { text: root.title; color: Theme.muted; font-size: 1rem; font-weight: 500; horizontal-alignment: center; wrap: word-wrap; }
+        if root.detail != "": Text { text: root.detail; color: Theme.subdued; font-size: 0.82rem; horizontal-alignment: center; wrap: word-wrap; }
+    }
+}

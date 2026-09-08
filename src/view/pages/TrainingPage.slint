@@ -1,7 +1,12 @@
+import { TrainingDraft } from "../ViewTypes.slint";
+import { WorkspaceHeader } from "../components/WorkspaceHeader.slint";
+import { IconButton } from "../components/IconButton.slint";
+import { ToolbarDivider } from "../components/ToolbarDivider.slint";
+import { GlassPanel } from "../components/GlassPanel.slint";
+import { Theme } from "../Theme.slint";
 import { ScrollView, CheckBox } from "std-widgets.slint";
-import { Theme, TrainingDraft } from "../theme.slint";
-import { GlassPanel, IconButton, ToolbarDivider, DraftField } from "../components/controls.slint";
-import { WorkspaceHeader, EmptyChart } from "../components/workspace.slint";
+import { DraftField } from "../components/DraftField.slint";
+import { EmptyChart } from "../components/EmptyChart.slint";
 
 export component TrainingPage inherits Rectangle {
     callback preview-action(string);

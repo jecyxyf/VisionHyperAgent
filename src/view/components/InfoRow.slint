@@ -1,0 +1,14 @@
+import { Theme } from "../Theme.slint";
+
+export component InfoRow inherits Rectangle {
+    in property <string> label;
+    in property <string> value;
+    height: 44px;
+    HorizontalLayout {
+        padding-left: 16px; padding-right: 16px;
+        cross-axis-alignment: center;
+        Text { text: root.label; color: Theme.muted; font-size: 0.88rem; horizontal-stretch: 1; }
+        Text { text: root.value; color: Theme.text; font-size: 0.86rem; }
+    }
+    Rectangle { x: 16px; y: parent.height - 1px; width: parent.width - 32px; height: 1px; background: Theme.border; }
+}
