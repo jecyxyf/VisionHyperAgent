@@ -4,43 +4,43 @@ Agent 驱动的视觉模型标注、自动训练与离线部署软件。
 
 产品目标是让用户在同一个桌面应用中导入图片，通过与 Agent 交互生成初步标注，修改并确认后，由 Agent 自动训练、调参、评估和选择模型。产出的模型可在本机离线运行，接收相机图像或外部程序传入的图片并返回识别结果。
 
-> **当前阶段：原生 Slint 界面初版。** 已建立工程骨架及运行、模型库及模型分组（预标注、标注、预训练、训练）、设置、关于和全局聊天面板，可使用项目内 Slint Viewer 预览。Rust 主程序仍为终端骨架，尚未连接界面或业务服务；未安装训练环境或下载模型。
+> **当前阶段：原生 Slint 界面初版。** 已建立工程骨架及运行、模型库及模型分组（预标注、标注、预训练、训练）、设置、关于和全局聊天面板，可使用项目内 Slint Viewer 预览。Rust 主程序已接入异步日志及自动退出收尾，尚未连接界面或业务服务；未安装训练环境或下载模型。
 
 ## 底层日志与配置
 
-已实现两个进程内线程安全单例 `LOGGER`、`CONFIG`。`src/foundation/` 仅包含 `logger.rs`、`config_manager.rs`、`mod.rs`；路径定位和共享错误上下文放在 `mod.rs`，测试集中在 `depoly/tests/`。
+已实现两个进程内线程安全单例 `LOGGER`、`CONFIG`。`src/foundation/` 仅包含 `logger.rs`、`config_manager.rs`、`mod.rs`；路径定位和共享错误上下文放在 `mod.rs`。
 
-- 日志位于可执行文件目录的 `logs/YYYY-MM-DD.log`，四级全部写入文件，记录毫秒时间、模块、源码文件／行号与原因；按本地日期切换并保留最近 90 天。
+- 日志位于可执行文件目录的 `logs/YYYY-MM-DD.log`，四级异步写入文件，在入队前捕获毫秒时间、模块、源码文件／行号与原因；按日志产生时的本地日期切换并保留最近 90 天。
+- `LOGGER` 只提供 `init / debug / info / warning / error`。由入口 `foundation::with_logging` 自动等待已入队日志写完；不公开刷新、关闭或专用错误上下文方法。队列满和后台失败不会伪装成功，具体返回语义见日志设计。
 - `config.json` 仅包含 Agent 的 `base_url`、`api_key`、`model`。修改只更新内存，显式 `save()` 才写盘；损坏时先更新 `config.json.back` 再重建。
+- `CONFIG.read(module, parameter)` 返回单个参数的字符串值；`CONFIG.write(module, parameter, value)` 修改指定参数。模块／参数名区分大小写，未知项返回错误，不自动创建；不再提供 `snapshot()` 或闭包式 `update()`。
 - KEY 按要求明文存储；配置调试输出及 JSON 错误诊断脱敏。调用方不得主动将 KEY、认证头或配置 JSON 写进日志。
-- `init()`／`load()` 返回 `ConfigLoadStatus`，用于区分加载、创建、恢复和重复初始化；恢复报告含安全的错误上下文，由调用方决定如何记录或呈现。
-- 本轮未修改 `main.rs`，也未接入 Slint 设置页；主程序不会自动创建这些文件，调用方需显式调用初始化入口。
+- `CONFIG.init()`／`CONFIG.load()` 和 `foundation::init()` 返回 `ConfigLoadStatus`，用于区分加载、创建、恢复和重复初始化；恢复报告含安全的错误上下文，由调用方决定如何转成文本记录或呈现。
+- `main.rs` 仅接入日志生命周期，启动会创建日志文件并记录启动、退出；不会自动初始化配置或生成 `config.json`，未接入 Slint 设置页。
 
 调用示例：
 
 ```rust
 use vision_hyper_agent::foundation::{self, CONFIG, LOGGER, ConfigLoadStatus};
 
-fn initialize() -> foundation::Result<()> {
-    let status = foundation::init()?;
-    if let ConfigLoadStatus::Recovered(problem) = status {
-        LOGGER.error_with_context("config", "已备份并重建配置", &problem)?;
-    }
-    CONFIG.update(|config| config.agent.model = "model-name".into())?;
-    CONFIG.save()?;
-    LOGGER.info("app", "配置已保存")?;
-    LOGGER.flush()?;
-    Ok(())
+fn main() -> foundation::Result<()> {
+    foundation::with_logging(|| {
+        let status = foundation::init()?;
+        if let ConfigLoadStatus::Recovered(problem) = status {
+            LOGGER.error("config", &format!("已备份并重建配置；{problem}"))?;
+        }
+        CONFIG.write("agent", "model", "model-name")?;
+        CONFIG.save()?;
+        LOGGER.info("app", "配置已保存")?;
+        // 实际应用应在此运行事件循环并结束业务线程，再离开托管作用域。
+        Ok(())
+    })
 }
 ```
 
-一键功能测试（不需要界面、GPU 或网络）：
+异步日志临时验证结果：临时白盒用例 21 项通过，重复 20 轮共 420 次通过；独立进程与接口检查 36 项通过，其中 20 轮并发退出共 320,020 条日志全部写入。Windows 仅完成编译链接，未运行实机测试。
 
-```sh
-python3 depoly/tests/test_foundation.py
-```
-
-脚本执行基础层单元测试及独立子进程黑盒测试，在临时目录中实际创建、读取和检查日志、配置及备份文件。覆盖四级日志、90 天清理、文件／行号／原因、内存修改与显式保存、损坏恢复、备份失败保护、保存失败、多线程访问，以及工作目录变化；测试结束清理临时目录，不触碰用户配置。
+2026-09-08 按用户要求删除这两个模块的单元测试、集成测试和 Python 测试脚本，并移除对应入口；保留功能实现、已完成的修复与设计文档中的验证摘要。当前 `cargo test` 不再包含这两个模块的专项功能回归；原有启动测试和 UI 预览脚本不受影响。
 
 实现与接口说明见 [Logger](docs/plans/foundation/Logger.md)、[ConfigManager](docs/plans/foundation/ConfigManager.md)。仅保证单进程内的并发一致性，不提供多进程文件协调或断电后绝对持久性。依赖采用本机缓存的 `serde 1.0.228`、`serde_json 1.0.149`、`chrono 0.4.45`，许可证均为 MIT OR Apache-2.0，版本与传递依赖由 `Cargo.lock` 固定；未测量最终发行包体积。
 

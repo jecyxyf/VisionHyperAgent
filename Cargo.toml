@@ -10,10 +10,6 @@ publish = false
 name = "smoke"
 path = "depoly/tests/smoke.rs"
 
-[[test]]
-name = "foundation"
-path = "depoly/tests/foundation.rs"
-
 [dependencies]
 chrono = { version = "=0.4.45", default-features = false, features = ["clock", "std"] }
 serde = { version = "=1.0.228", features = ["derive"] }

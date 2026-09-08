@@ -1,7 +1,7 @@
 # ConfigManager 配置管理设计
 
 - 日期：2026-09-08
-- 状态：已按确认方案实现；Linux 测试和 Windows 目标编译检查通过，Windows 尚未实机测试。
+- 状态：已改为 read/write 参数接口；Linux 临时功能验证和 Windows 目标编译检查通过，Windows 尚未实机测试。
 - 范围：只实现 Rust 基础层及 JSON 读写，不接入 Slint 设置界面或实际模型请求。
 
 ## 1. 类型与目录
@@ -13,7 +13,7 @@
 - 路径定位和共享错误上下文放在 `src/foundation/mod.rs`，与日志共用，不新增其他基础层源码文件。
 - 日志设计：[Logger](Logger.md)。
 
-配置参数集中在结构体中，不拆成散落的全局可变变量。使用线程安全的单例和读写锁；读取提供配置快照，修改通过受控接口完成。
+配置参数在内部集中存放于结构体，使用线程安全的单例和读写锁；对外通过模块名、参数名读取或修改单个字符串值，不提供整个配置的快照或修改闭包。
 
 ## 2. 保存位置与 JSON 结构
 
@@ -69,27 +69,29 @@
 
 - `CONFIG.init()`：首次加载或恢复配置；重复初始化不覆盖现有内存修改，返回 `ConfigLoadStatus`。
 - `CONFIG.load()`：显式重新加载，返回 `ConfigLoadStatus`。
-- `CONFIG.snapshot()`：获取配置快照。
-- `CONFIG.update(|config| { ... })`：修改内存配置。
+- `CONFIG.read(module: &str, parameter: &str) -> Result<String>`：读取指定参数的独立字符串。
+- `CONFIG.write(module: &str, parameter: &str, value: &str) -> Result<()>`：修改指定参数的内存值。
 - `CONFIG.save()`：显式保存。
 
-接口返回 `Result`，不通过 `unwrap()`、`expect()` 或静默回退处理外部文件错误。`update` 闭包仅修改参数，不在闭包内再次访问 `CONFIG`、执行文件 I/O 或等待外部操作。
+接口返回 `Result`，不通过 `unwrap()`、`expect()` 或静默回退处理外部文件错误。模块名与参数名区分大小写，当前只接受 `agent` 模块下的 `base_url`、`api_key`、`model`；未知模块或参数返回 `InvalidInput`，不创建字段、不改变原配置。已知参数允许空字符串；初始化前调用返回 `NotInitialized`。`write()` 不执行文件 I/O，仍需显式 `save()`。
+
+已删除 `snapshot()` 和闭包式 `update()`。`read()` 返回的字符串由调用方持有，修改该字符串不影响配置；读取 `api_key` 返回明文，但不得写入日志或诊断输出。
 
 调用示意：
 
 ```rust
-foundation::init()?;
-
-let current = CONFIG.snapshot()?;
-CONFIG.update(|config| {
-    config.agent.model = "model-name".into();
+foundation::with_logging(|| {
+    foundation::init()?;
+    CONFIG.write("agent", "model", "model-name")?;
+    let model = CONFIG.read("agent", "model")?;
+    CONFIG.save()?;
+    Ok(model)
 })?;
-CONFIG.save()?;
 ```
 
-`ConfigLoadStatus` 包含 `Loaded`、`Created`、`AlreadyInitialized`、`Recovered(ErrorContext)`（上下文由 Box 持有）。恢复不等于普通成功加载，调用方可将恢复上下文交给 `LOGGER.error_with_context()`；配置模块本身不向终端输出。
+`ConfigLoadStatus` 包含 `Loaded`、`Created`、`AlreadyInitialized`、`Recovered(ErrorContext)`（上下文由 Box 持有）。恢复不等于普通成功加载，调用方可用 `LOGGER.error("config", &format!("已备份并重建配置；{problem}"))` 记录安全的原因文本；不再提供专用错误上下文日志方法。配置模块本身不向终端输出。
 
-`foundation::init()` 使用统一的可执行目录定位方法，先初始化日志，再初始化配置，并返回配置加载状态。它是供调用方使用的底层入口；本轮不接入界面或业务流程。
+`foundation::init()` 使用统一的可执行目录定位方法，先初始化日志，再初始化配置，并返回配置加载状态。需要在 `foundation::with_logging` 托管的应用作用域中调用，后者负责日志正常退出收尾。本轮主程序只使用日志托管入口，不调用配置初始化，不接入界面或业务流程。
 
 ## 6. 安全与错误信息
 
@@ -114,6 +116,15 @@ CONFIG.save()?;
 - `save()` 串行保存调用取得的快照，保存过程中产生的新修改仍需后续显式保存。
 - 不接入主程序或界面，不调用在线模型，也不保证跨进程写入或断电后绝对持久性。
 
-## 一键功能测试
+## 功能测试记录
 
-从仓库根目录运行 `python3 depoly/tests/test_foundation.py`。脚本不依赖 Slint、GPU、在线服务或真实 KEY；除单元测试外，还复制测试可执行文件到临时目录，以全新进程实际调用 `LOGGER`、`CONFIG`，检查磁盘文件和保护行为。底层源码仍严格限定为三个文件。
+2026-09-08 按用户要求删除日志与配置的专项测试代码及运行入口，保留功能实现与验证摘要。当前工程不再提供这两模块的一键功能回归；下述验证结果属于删除前的记录，不代表当前测试命令仍覆盖这些场景。底层源码仍严格限定为三个文件。
+
+## 2026-09-08 加强回归
+
+运行目录及文件拒绝软链接与特殊文件，写入／替换／清理不强行覆盖只读目标；本模块新建文件在 Linux 上显式设置 `0600`，新建日志目录设置 `0700`，已有目录权限不变。路径检查不替代多进程协调或恶意文件系统竞争防护。Windows 已完成编译链接，尚未实机运行。
+
+
+## 2026-09-08 参数接口验证
+
+临时进程探针已验证三个 Agent 参数的读写、空值与特殊字符、返回字符串独立性、未初始化、非法模块／参数及错误诊断脱敏、修改不自动保存、显式保存与重载、并发读写、损坏备份恢复；旧 `snapshot()`、`update()` 调用均无法通过编译。原有工作区测试、严格 Clippy、Windows 目标编译检查通过；Windows 未实机运行。临时测试源码和可执行文件已清理，未恢复已删除的测试文件。
