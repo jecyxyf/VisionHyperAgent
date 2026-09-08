@@ -1,6 +1,6 @@
 //! VisionHyperAgent 内部模块入口。
 //!
-//! 当前只建立分层边界，不接入界面、模型或外部运行环境。
+//! 已实现基础层日志与配置；界面、模型和外部运行环境尚未接入主程序。
 
 pub mod agent;
 pub mod application;

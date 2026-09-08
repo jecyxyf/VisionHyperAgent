@@ -43,3 +43,9 @@ __pycache__/
 .env
 .env.*
 !.env.example
+
+# Application runtime configuration, secret-bearing backups and logs
+/logs/
+/config.json
+/config.json.back
+/.config.json*.tmp-*
