@@ -108,6 +108,7 @@ pub enum FoundationErrorKind {
     InvalidInput,
     QueueFull,
     WorkerStopped,
+    Platform,
 }
 
 /// JSON 解析错误不保留 serde 的原始错误文本，避免其包含 KEY 值。

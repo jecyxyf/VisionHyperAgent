@@ -47,7 +47,7 @@ PATH="$PWD/depoly/tools/slint/bin:$PATH" slint-viewer --version
 - LSP 已验证启动版本，尚未配置具体编辑器或执行完整的 LSP 交互验收。
 - 未配置 MCP 服务、未安装 Windows 工具，也未安装系统软件包或修改全局 PATH。
 
-当前界面可通过 Viewer 独立预览，`Cargo.toml` 仍未引入 Slint 库，`cargo run` 尚不显示界面；后续选择应用依赖时，应核对其 Slint 版本与工具兼容性。
+当前界面仍可通过 Viewer 独立预览。`Cargo.toml` 已固定 Slint / slint-build 1.17.1，与本地工具一致；`build.rs` 编译并嵌入资源，`cargo run --locked` 直接打开原生窗口。最终用户运行 `bin/` 中的桌面产物不需要安装这些开发工具。
 
 ## 版本维护
 

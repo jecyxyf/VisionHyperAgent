@@ -1,13 +1,14 @@
 import { WorkspaceHeader } from "../components/WorkspaceHeader.slint";
 import { GlassPanel } from "../components/GlassPanel.slint";
 import { Theme } from "../Theme.slint";
+import { AboutSlint } from "std-widgets.slint";
 
 export component AboutPage inherits Rectangle {
     VerticalLayout {
         spacing: 12px;
         WorkspaceHeader { title: "关于"; }
         GlassPanel {
-            height: 200px;
+            height: 280px;
             VerticalLayout {
                 padding: 28px; spacing: 16px;
                 HorizontalLayout {
@@ -24,6 +25,7 @@ export component AboutPage inherits Rectangle {
                 }
                 Rectangle { height: 1px; background: Theme.border; }
                 Text { text: "本地训练 · 离线识别"; color: Theme.muted; font-size: 0.86rem; }
+                AboutSlint {}
             }
         }
         Rectangle { vertical-stretch: 1; }

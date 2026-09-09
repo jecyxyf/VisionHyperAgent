@@ -1,13 +1,10 @@
+#![cfg_attr(target_os = "windows", windows_subsystem = "windows")]
+
 use std::process::ExitCode;
-use vision_hyper_agent::foundation::{self, LOGGER};
+use vision_hyper_agent::{foundation, view};
 
 fn main() -> ExitCode {
-    let result = foundation::with_logging(|| {
-        LOGGER.info("app", "程序启动")?;
-        println!("VisionHyperAgent 工程骨架已初始化；业务功能尚未实现。");
-        LOGGER.info("app", "程序正常退出")?;
-        Ok(())
-    });
+    let result = foundation::with_logging(view::run);
     match result {
         Ok(()) => ExitCode::SUCCESS,
         // 业务错误由托管入口写入日志；日志本身不可写时不伪装成功或回退到终端。

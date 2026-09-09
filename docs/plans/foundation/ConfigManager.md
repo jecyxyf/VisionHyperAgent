@@ -91,7 +91,7 @@ foundation::with_logging(|| {
 
 `ConfigLoadStatus` 包含 `Loaded`、`Created`、`AlreadyInitialized`、`Recovered(ErrorContext)`（上下文由 Box 持有）。恢复不等于普通成功加载，调用方可用 `LOGGER.error("config", &format!("已备份并重建配置；{problem}"))` 记录安全的原因文本；不再提供专用错误上下文日志方法。配置模块本身不向终端输出。
 
-`foundation::init()` 使用统一的可执行目录定位方法，先初始化日志，再初始化配置，并返回配置加载状态。需要在 `foundation::with_logging` 托管的应用作用域中调用，后者负责日志正常退出收尾。本轮主程序只使用日志托管入口，不调用配置初始化，不接入界面或业务流程。
+`foundation::init()` 使用统一的可执行目录定位方法，先初始化日志，再初始化配置，并返回配置加载状态。需要在 `foundation::with_logging` 托管的应用作用域中调用，后者负责日志正常退出收尾。主程序在日志托管作用域内运行 Slint，但不调用配置初始化，配置仍未连接界面或业务流程。
 
 ## 6. 安全与错误信息
 
