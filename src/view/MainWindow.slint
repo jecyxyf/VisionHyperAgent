@@ -1,6 +1,6 @@
 import { SplitArea } from "ui_items/SplitArea.slint";
 import "resources/ui/fonts/NotoSansCJK-Regular.ttc";
-import { Theme } from "Theme.slint";
+import { Theme } from "ui_items/Theme.slint";
 import { Palette } from "std-widgets.slint";
 import {
     ViewPage,
@@ -8,8 +8,8 @@ import {
     FeatureDraft,
     TrainingDraft,
     PaneLayout,
-} from "ViewTypes.slint";
-import { UiHints } from "UiHints.slint";
+} from "ui_items/ViewTypes.slint";
+import { UiHints } from "ui_items/UiHints.slint";
 import { AppHeader } from "components/AppHeader.slint";
 import { GlassPanel } from "components/GlassPanel.slint";
 import { NavItem } from "components/NavItem.slint";
@@ -38,6 +38,9 @@ export component MainWindow inherits Window {
     init => { Palette.color-scheme = ColorScheme.light; }
 
     in-out property <ViewPage> current-page: ViewPage.inference;
+    // Logical dimensions remain available after the native window is hidden on exit.
+    out property <length> layout-window-width: root.width;
+    out property <length> layout-window-height: root.height;
     callback page-requested(ViewPage);
     // Standalone Viewer fallback; the Rust host replaces this handler with ViewModel binding.
     page-requested(page) => { root.current-page = page; }

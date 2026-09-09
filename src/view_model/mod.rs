@@ -5,6 +5,7 @@ use std::{error::Error, fmt};
 mod config_view_model;
 mod main_window_view_model;
 
+pub use crate::foundation::LayoutGroup;
 pub use config_view_model::ConfigViewModel;
 pub use main_window_view_model::{MainPage, MainWindowViewModel};
 

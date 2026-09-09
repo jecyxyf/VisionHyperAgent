@@ -4,7 +4,6 @@
 //! 模型、相机、通信及训练运行环境尚未接入。
 
 pub mod agent;
-pub mod application;
 pub mod drivers;
 pub mod foundation;
 pub mod view;

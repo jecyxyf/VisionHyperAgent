@@ -26,7 +26,7 @@ def render(name, page, width, height, extra=''):
     source = OUTPUT / f'{name}-{width}.slint'
     source.write_text(
         'import { MainWindow } from "../../../../src/view/MainWindow.slint";\n'
-        'import { ViewPage } from "../../../../src/view/ViewTypes.slint";\n'
+        'import { ViewPage } from "../../../../src/view/ui_items/ViewTypes.slint";\n'
         'export component Preview inherits MainWindow {\n'
         f'    preferred-width: {width}px; preferred-height: {height}px;\n'
         f'    current-page: ViewPage.{page};\n'

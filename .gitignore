@@ -49,3 +49,6 @@ __pycache__/
 /config.json
 /config.json.back
 /.config.json*.tmp-*
+/parameters.json
+/parameters.json.back
+/.parameters.json*.tmp-*

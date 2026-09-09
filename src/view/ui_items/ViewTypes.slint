@@ -1,6 +1,7 @@
 export enum ViewPage { inference, models, preannotation, annotation, pretraining, training, settings, about }
 
-// Session-only pane preferences. Negative outer widths mean automatic 1:8:4 sizing.
+// Pane preferences; the Rust host persists normalized ratios in parameters.json.
+// Negative outer widths mean automatic 1:8:4 sizing.
 export struct PaneLayout {
     navigation-width: length,
     agent-width: length,

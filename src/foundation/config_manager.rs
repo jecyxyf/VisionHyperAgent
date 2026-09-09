@@ -189,7 +189,7 @@ fn read_or_recover_with(
         }
     }
 }
-fn atomic_write(path: &Path, bytes: &[u8]) -> Result<()> {
+pub(crate) fn atomic_write(path: &Path, bytes: &[u8]) -> Result<()> {
     atomic_write_with(path, |file| file.write_all(bytes))
 }
 fn atomic_write_with(path: &Path, write: impl FnOnce(&mut File) -> io::Result<()>) -> Result<()> {

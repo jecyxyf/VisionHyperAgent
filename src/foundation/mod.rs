@@ -15,9 +15,13 @@
 //! })
 //! # }
 //! ```
+mod app_param;
 mod config_manager;
 mod logger;
 
+pub(crate) use config_manager::atomic_write;
+
+pub use app_param::{APP_PARAM, AppParam, LayoutGroup};
 pub use config_manager::{AgentConfig, AppConfig, CONFIG, ConfigLoadStatus, ConfigManager};
 pub use logger::{LOGGER, LogLevel, Logger};
 

@@ -4,8 +4,10 @@ use slint::platform::{
 };
 use slint::{ComponentHandle, LogicalPosition, ModelRc, PhysicalSize, Rgb8Pixel, VecModel};
 use std::rc::Rc;
-use vision_hyper_agent::view::{MainWindow, ModelEntry, ViewPage, bind_main_window};
-use vision_hyper_agent::view_model::{MainPage, MainWindowViewModel};
+use vision_hyper_agent::view::{
+    MainWindow, ModelEntry, ViewPage, bind_main_window, capture_main_window_layout,
+};
+use vision_hyper_agent::view_model::{LayoutGroup, MainPage, MainWindowViewModel};
 
 struct TestPlatform(Rc<MinimalSoftwareWindow>);
 
@@ -193,6 +195,59 @@ fn native_ui_constructs_renders_and_preserves_drafts() -> Result<(), Box<dyn std
             "缩放和切页不得覆盖用户尺寸偏好"
         );
         assert_eq!(window.get_chat_draft(), "切页保留草稿");
+    }
+    window.hide()?;
+    // 退出隐藏后仍能捕获逻辑尺寸；JSON 与 ViewModel 均不依赖 Slint 类型。
+    capture_main_window_layout(&window, &view_model)?;
+    let saved = view_model.layout().ok_or("布局未捕获")?;
+    close_to(saved.window_width, 1920.0);
+    close_to(saved.window_height, 1080.0);
+    let json = serde_json::to_string(&saved)?;
+    let restored: LayoutGroup = serde_json::from_str(&json)?;
+    assert_eq!(restored, saved);
+    let mut invalid = restored.clone();
+    invalid.agent_ratio = Some(1.5);
+    assert!(view_model.set_layout(invalid).is_err());
+    assert_eq!(view_model.layout(), Some(saved));
+    view_model.set_layout(restored)?;
+    window.set_pane_layout(defaults);
+    window.window().set_size(PhysicalSize::new(1440, 900));
+    bind_main_window(&window, Rc::clone(&view_model));
+    window.show()?;
+    render(&window, &adapter);
+    let actual = window.get_pane_layout();
+    for (actual, expected) in [
+        (actual.navigation_width, preserved.navigation_width),
+        (actual.agent_width, preserved.agent_width),
+        (
+            actual.inference_records_height,
+            preserved.inference_records_height,
+        ),
+        (
+            actual.models_details_height,
+            preserved.models_details_height,
+        ),
+        (
+            actual.annotation_list_width,
+            preserved.annotation_list_width,
+        ),
+        (
+            actual.preannotation_editor_width,
+            preserved.preannotation_editor_width,
+        ),
+        (
+            actual.preannotation_analysis_ratio,
+            preserved.preannotation_analysis_ratio,
+        ),
+        (
+            actual.training_parameters_width,
+            preserved.training_parameters_width,
+        ),
+        (actual.training_log_height, preserved.training_log_height),
+        (actual.training_loss_ratio, preserved.training_loss_ratio),
+        (actual.chat_composer_height, preserved.chat_composer_height),
+    ] {
+        close_to(actual, expected);
     }
     window.hide()?;
     Ok(())
