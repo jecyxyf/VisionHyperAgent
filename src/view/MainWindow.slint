@@ -38,6 +38,9 @@ export component MainWindow inherits Window {
     init => { Palette.color-scheme = ColorScheme.light; }
 
     in-out property <ViewPage> current-page: ViewPage.inference;
+    callback page-requested(ViewPage);
+    // Standalone Viewer fallback; the Rust host replaces this handler with ViewModel binding.
+    page-requested(page) => { root.current-page = page; }
     in-out property <PaneLayout> pane-layout: {
         navigation-width: -1px,
         agent-width: -1px,
@@ -131,7 +134,7 @@ export component MainWindow inherits Window {
                         text: "运行";
                         icon: @image-url("resources/ui/icons/play.svg");
                         selected: root.current-page == ViewPage.inference;
-                        activated => { root.current-page = ViewPage.inference; }
+                        activated => { root.page-requested(ViewPage.inference); }
                     }
 
                     Rectangle {
@@ -144,7 +147,7 @@ export component MainWindow inherits Window {
                         expanded: root.models-expanded;
                         selected: root.current-page == ViewPage.models ||
                             (!root.models-expanded && (root.current-page == ViewPage.preannotation || root.current-page == ViewPage.annotation || root.current-page == ViewPage.pretraining || root.current-page == ViewPage.training));
-                        activated => { root.current-page = ViewPage.models; }
+                        activated => { root.page-requested(ViewPage.models); }
                         toggle-expanded => { root.models-expanded = !root.models-expanded; UiHints.text = ""; }
                     }
 
@@ -152,25 +155,25 @@ export component MainWindow inherits Window {
                         text: "预标注";
                         nested: true;
                         selected: root.current-page == ViewPage.preannotation;
-                        activated => { root.current-page = ViewPage.preannotation; }
+                        activated => { root.page-requested(ViewPage.preannotation); }
                     }
                     if root.models-expanded: NavItem {
                         text: "标注";
                         nested: true;
                         selected: root.current-page == ViewPage.annotation;
-                        activated => { root.current-page = ViewPage.annotation; }
+                        activated => { root.page-requested(ViewPage.annotation); }
                     }
                     if root.models-expanded: NavItem {
                         text: "预训练";
                         nested: true;
                         selected: root.current-page == ViewPage.pretraining;
-                        activated => { root.current-page = ViewPage.pretraining; }
+                        activated => { root.page-requested(ViewPage.pretraining); }
                     }
                     if root.models-expanded: NavItem {
                         text: "训练";
                         nested: true;
                         selected: root.current-page == ViewPage.training;
-                        activated => { root.current-page = ViewPage.training; }
+                        activated => { root.page-requested(ViewPage.training); }
                     }
                     Rectangle {
                         vertical-stretch: 1;
@@ -184,14 +187,14 @@ export component MainWindow inherits Window {
                         text: "设置";
                         icon: @image-url("resources/ui/icons/settings.svg");
                         selected: root.current-page == ViewPage.settings;
-                        activated => { root.current-page = ViewPage.settings; }
+                        activated => { root.page-requested(ViewPage.settings); }
                     }
 
                     NavItem {
                         text: "关于";
                         icon: @image-url("resources/ui/icons/about.svg");
                         selected: root.current-page == ViewPage.about;
-                        activated => { root.current-page = ViewPage.about; }
+                        activated => { root.page-requested(ViewPage.about); }
                     }
                 }
             }
@@ -252,7 +255,7 @@ export component MainWindow inherits Window {
                             } else { root.feature-confirmed = true; }
                         }
                         continue-annotation => {
-                            if root.feature-confirmed { root.current-page = ViewPage.annotation; }
+                            if root.feature-confirmed { root.page-requested(ViewPage.annotation); }
                             else { root.show-notice("请先确认标注规则。"); }
                         }
                     }

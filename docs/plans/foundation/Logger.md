@@ -1,8 +1,8 @@
 # Logger 日志设计
 
-- 日期：2026-09-08
+- 日期：2026-09-09
 - 状态：已改为异步写入并接入主程序自动收尾；Linux 临时功能验证与 Windows 目标编译检查通过，Windows 尚未实机测试。
-- 范围：Rust 基础层及主程序最小日志生命周期托管，日志模块不依赖 Slint、Agent、配置或训练业务；主程序现已在托管作用域中运行 Slint 事件循环。
+- 范围：Rust 基础层及桌面运行期日志托管，日志模块不依赖 Slint、Agent、配置或训练业务；MainWindowViewModel 协调日志作用域，View 在其内部运行 Slint 事件循环。
 
 ## 1. 类型与目录
 
@@ -64,9 +64,11 @@
 
 ### 自动退出收尾
 
-主程序使用 `foundation::with_logging(|| { ... })` 包住整个运行期。它持有内部生命周期守卫，正常返回（包括 `Result::Err`）时自动停止接收新记录，等待队列读完、文件同步及后台线程结束；不采用超时丢弃尾部日志的策略。不公开 `flush()` 或 `shutdown()`，业务代码无需手动刷新或关闭。
+当前由 `MainWindowViewModel::run` 调用 `foundation::with_logging(|| { ... })` 包住运行期，`main.rs` 不直接操作日志。基础层持有内部生命周期守卫，正常返回（包括 `Result::Err`）时自动停止接收新记录，等待队列读完、文件同步及后台线程结束；不采用超时丢弃尾部日志的策略。不公开 `flush()` 或 `shutdown()`，业务代码无需手动刷新或关闭。
 
-闭包返回的业务错误会通过 `error()` 写成文本。`with_logging()` 只有业务执行与日志收尾均成功才返回成功；当前 `main.rs` 在失败时返回非零退出码。
+闭包返回的业务错误会通过 `error()` 写成文本。`with_logging()` 只有业务执行与日志收尾均成功才返回成功；当前 `main.rs` 在失败时返回非零退出码。主窗口 ViewModel 只协调共享日志生命周期和子模块，不实现日志写入，也不代理配置 CRUD；配置初始化由 ConfigViewModel 调用 CONFIG，成功恢复提示由主窗口协调写 WARNING。
+
+以下是底层日志作用域的独立调用示例，不是当前桌面入口实现；View 应通过 ViewModel 交互，不直接调用 Foundation：
 
 ```rust
 use vision_hyper_agent::foundation::{self, LOGGER};

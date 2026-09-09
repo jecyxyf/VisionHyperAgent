@@ -1,13 +1,12 @@
 #![cfg_attr(target_os = "windows", windows_subsystem = "windows")]
 
 use std::process::ExitCode;
-use vision_hyper_agent::{foundation, view};
+use vision_hyper_agent::view;
 
 fn main() -> ExitCode {
-    let result = foundation::with_logging(view::run);
-    match result {
+    match view::run() {
         Ok(()) => ExitCode::SUCCESS,
-        // 业务错误由托管入口写入日志；日志本身不可写时不伪装成功或回退到终端。
+        // 运行核心负责记录错误和基础服务收尾，入口只返回退出状态。
         Err(_) => ExitCode::FAILURE,
     }
 }

@@ -4,7 +4,8 @@ use slint::platform::{
 };
 use slint::{ComponentHandle, LogicalPosition, ModelRc, PhysicalSize, Rgb8Pixel, VecModel};
 use std::rc::Rc;
-use vision_hyper_agent::view::{MainWindow, ModelEntry, ViewPage};
+use vision_hyper_agent::view::{MainWindow, ModelEntry, ViewPage, bind_main_window};
+use vision_hyper_agent::view_model::{MainPage, MainWindowViewModel};
 
 struct TestPlatform(Rc<MinimalSoftwareWindow>);
 
@@ -68,12 +69,17 @@ fn native_ui_constructs_renders_and_preserves_drafts() -> Result<(), Box<dyn std
     let adapter = MinimalSoftwareWindow::new(RepaintBufferType::NewBuffer);
     slint::platform::set_platform(Box::new(TestPlatform(adapter.clone())))?;
     let window = MainWindow::new()?;
+    let view_model = Rc::new(MainWindowViewModel::new());
+    bind_main_window(&window, Rc::clone(&view_model));
     assert_eq!(window.get_current_page(), ViewPage::Inference);
     window.set_chat_draft("切页保留草稿".into());
-    window.set_current_page(ViewPage::Models);
+    window.invoke_page_requested(ViewPage::Models);
+    assert_eq!(view_model.current_page(), MainPage::Models);
+    assert_eq!(window.get_current_page(), ViewPage::Models);
     window.set_models_expanded(false);
     assert_eq!(window.get_chat_draft(), "切页保留草稿");
-    window.set_current_page(ViewPage::Inference);
+    window.invoke_page_requested(ViewPage::Inference);
+    assert_eq!(view_model.current_page(), MainPage::Inference);
     window.window().set_size(PhysicalSize::new(1440, 900));
     window.show()?;
     render(&window, &adapter);

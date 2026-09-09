@@ -11,30 +11,25 @@ Agent 驱动的视觉模型标注、自动训练与离线部署软件。
 已实现两个进程内线程安全单例 `LOGGER`、`CONFIG`。`src/foundation/` 仅包含 `logger.rs`、`config_manager.rs`、`mod.rs`；路径定位和共享错误上下文放在 `mod.rs`。
 
 - 日志位于可执行文件目录的 `logs/YYYY-MM-DD.log`，四级异步写入文件，在入队前捕获毫秒时间、模块、源码文件／行号与原因；按日志产生时的本地日期切换并保留最近 90 天。
-- `LOGGER` 只提供 `init / debug / info / warning / error`。由入口 `foundation::with_logging` 自动等待已入队日志写完；不公开刷新、关闭或专用错误上下文方法。队列满和后台失败不会伪装成功，具体返回语义见日志设计。
+- `LOGGER` 只提供 `init / debug / info / warning / error`。由 `MainWindowViewModel::run` 内的 `foundation::with_logging` 自动等待已入队日志写完；不公开刷新、关闭或专用错误上下文方法。队列满和后台失败不会伪装成功，具体返回语义见日志设计。
 - `config.json` 仅包含 Agent 的 `base_url`、`api_key`、`model`。修改只更新内存，显式 `save()` 才写盘；损坏时先更新 `config.json.back` 再重建。
 - `CONFIG.read(module, parameter)` 返回单个参数的字符串值；`CONFIG.write(module, parameter, value)` 修改指定参数。模块／参数名区分大小写，未知项返回错误，不自动创建；不再提供 `snapshot()` 或闭包式 `update()`。
 - KEY 按要求明文存储；配置调试输出及 JSON 错误诊断脱敏。调用方不得主动将 KEY、认证头或配置 JSON 写进日志。
 - `CONFIG.init()`／`CONFIG.load()` 和 `foundation::init()` 返回 `ConfigLoadStatus`，用于区分加载、创建、恢复和重复初始化；恢复报告含安全的错误上下文，由调用方决定如何转成文本记录或呈现。
-- `main.rs` 通过 `foundation::with_logging(view::run)` 启动现有界面并托管日志生命周期，不再打印终端演示或写启动／退出日志。正常运行只创建空日志文件；不会自动初始化配置或生成 `config.json`，设置页尚未连接配置服务。
+- `main.rs` 只调用 `view::run()` 并返回退出码。View 创建窗口及 MainWindowViewModel，后者协调日志运行期及子 ConfigViewModel 初始化；启动会加载或首次创建 `config.json`，损坏恢复写 WARNING，不写启动／退出演示日志。设置页配置编辑尚未绑定。
 
-调用示例：
+配置由独立的 `ConfigViewModel` 负责，不经过主窗口 ViewModel 代理读写。无 UI 调用示例：
 
 ```rust
-use vision_hyper_agent::foundation::{self, CONFIG, LOGGER, ConfigLoadStatus};
+use vision_hyper_agent::view_model::{ConfigViewModel, Result};
 
-fn main() -> foundation::Result<()> {
-    foundation::with_logging(|| {
-        let status = foundation::init()?;
-        if let ConfigLoadStatus::Recovered(problem) = status {
-            LOGGER.error("config", &format!("已备份并重建配置；{problem}"))?;
-        }
-        CONFIG.write("agent", "model", "model-name")?;
-        CONFIG.save()?;
-        LOGGER.info("app", "配置已保存")?;
-        // 实际应用应在此运行事件循环并结束业务线程，再离开托管作用域。
-        Ok(())
-    })
+fn main() -> Result<()> {
+    let config = ConfigViewModel::new();
+    // 返回损坏恢复时的安全提示，供调用方呈现；桌面宿主会将其记录为 WARNING。
+    let _recovery_notice = config.init()?;
+    config.write("agent", "model", "model-name")?;
+    config.save()?; // write 不自动保存
+    Ok(())
 }
 ```
 
@@ -47,6 +42,8 @@ fn main() -> foundation::Result<()> {
 ## 桌面程序与构建
 
 Rust 主程序已通过 `src/view/mod.rs` 加载 `MainWindow.slint`。`build.rs` 在构建期编译界面并内嵌图片、图标和 Noto 中文字体；Slint / slint-build 固定为 `1.17.1`，采用 Winit、优先 FemtoVG（OpenGL）渲染，保留软件渲染回退，不依赖 Qt 或项目内 Viewer。
+
+`src/view_model/main_window_view_model.rs` 管理主窗口导航和子模块协调；`config_view_model.rs` 管理配置初始化、加载、读写和显式保存。两者均不依赖 Slint；设置页编辑、其他页面业务尚未接入。2026-09-09 的 10 组临时无 UI 检查验证了独立导航、独立配置及恢复、启动协调、失败处理和配置并发读写，未恢复已删除的基础层专项测试。
 
 ### 已生成的 0.1.0 桌面版本
 
@@ -75,7 +72,7 @@ cargo test --release --locked --target x86_64-unknown-linux-gnu --workspace
 cargo fmt --all -- --check
 ```
 
-本机使用 Rust/Cargo 1.97.1，Windows 交叉构建需要已安装的 `x86_64-pc-windows-gnu` 标准库和 MinGW-w64 链接器。没有安装系统驱动、配置 Conda 或修改全局 PATH。`depoly/tests/smoke.rs` 已从终端启动断言改为真正构造 Slint 主窗口、检查默认页面、草稿与布局保留，并通过真实 Slint 指针事件验证各处分隔条及非空渲染；该测试不启动训练、模型或相机，也不代替 Windows 实机验证。
+本机使用 Rust/Cargo 1.97.1，Windows 交叉构建需要已安装的 `x86_64-pc-windows-gnu` 标准库和 MinGW-w64 链接器。没有安装系统驱动、配置 Conda 或修改全局 PATH。`depoly/tests/smoke.rs` 构造 Slint 主窗口，检查导航请求与 MainWindowViewModel 状态同步、默认页面、草稿与布局保留，并通过真实 Slint 指针事件验证各处分隔条及非空渲染；该测试不启动训练、模型或相机，也不代替 Windows 实机验证。
 
 `.cargo/config.toml` 将中间产物放在 `depoly/target/`。手动归集：
 

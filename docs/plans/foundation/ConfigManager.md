@@ -1,8 +1,8 @@
 # ConfigManager 配置管理设计
 
-- 日期：2026-09-08
-- 状态：已改为 read/write 参数接口；Linux 临时功能验证和 Windows 目标编译检查通过，Windows 尚未实机测试。
-- 范围：只实现 Rust 基础层及 JSON 读写，不接入 Slint 设置界面或实际模型请求。
+- 日期：2026-09-09
+- 状态：read/write 底层接口保持不变；已由独立 ConfigViewModel 接入启动初始化，设置页编辑尚未绑定。
+- 范围：Rust 基础层及 JSON 读写，补充 ViewModel 调用边界；不接入 Slint 设置编辑或实际模型请求。
 
 ## 1. 类型与目录
 
@@ -77,21 +77,20 @@
 
 已删除 `snapshot()` 和闭包式 `update()`。`read()` 返回的字符串由调用方持有，修改该字符串不影响配置；读取 `api_key` 返回明文，但不得写入日志或诊断输出。
 
-调用示意：
+配置界面和其他上层调用方通过 `src/view_model/config_view_model.rs` 的 `ConfigViewModel` 使用这些能力，不在 View 直接调用 CONFIG，也不由 MainWindowViewModel 代理读写。无 UI 调用示意：
 
 ```rust
-foundation::with_logging(|| {
-    foundation::init()?;
-    CONFIG.write("agent", "model", "model-name")?;
-    let model = CONFIG.read("agent", "model")?;
-    CONFIG.save()?;
-    Ok(model)
-})?;
+let config = ConfigViewModel::new();
+let recovery_notice = config.init()?; // 可独立初始化，不需要主窗口或日志
+// recovery_notice 为损坏恢复时的安全提示，交由调用方按需呈现。
+config.write("agent", "model", "model-name")?;
+let model = config.read("agent", "model")?;
+config.save()?;
 ```
 
-`ConfigLoadStatus` 包含 `Loaded`、`Created`、`AlreadyInitialized`、`Recovered(ErrorContext)`（上下文由 Box 持有）。恢复不等于普通成功加载，调用方可用 `LOGGER.error("config", &format!("已备份并重建配置；{problem}"))` 记录安全的原因文本；不再提供专用错误上下文日志方法。配置模块本身不向终端输出。
+底层 `ConfigLoadStatus` 包含 `Loaded`、`Created`、`AlreadyInitialized`、`Recovered(ErrorContext)`（上下文由 Box 持有）。ConfigViewModel 的 `init / load` 返回 `Result<Option<String>>`：正常为 None，损坏恢复为携带安全原因及原始位置的 Some 提示。配置模块与 ConfigViewModel 均不主动输出日志或终端文本。
 
-`foundation::init()` 使用统一的可执行目录定位方法，先初始化日志，再初始化配置，并返回配置加载状态。需要在 `foundation::with_logging` 托管的应用作用域中调用，后者负责日志正常退出收尾。主程序在日志托管作用域内运行 Slint，但不调用配置初始化，配置仍未连接界面或业务流程。
+桌面启动由 MainWindowViewModel 建立日志作用域，再调用子 ConfigViewModel 的 `init()`；恢复提示写 WARNING，初始化失败则记录错误并中止任务。ConfigViewModel 也可独立调用，保留 `new / init / load / read / write / save`，不依赖 MainWindowViewModel、Slint 或 Logger 初始化。底层 `foundation::init()` 仍保留作为组合接口，但不是当前桌面的配置调用入口。设置页编辑尚未绑定。
 
 ## 6. 安全与错误信息
 
@@ -114,7 +113,7 @@ foundation::with_logging(|| {
 - 已知字段缺失时填充默认值；未知字段遵循 serde 默认忽略行为，显式保存仅输出当前定义的 Agent 字段，不将其当作跨版本迁移能力。
 - 临时文件使用排他创建并在替换前刷新、关闭；写入／替换失败清理临时文件，清理失败追加到错误原因。
 - `save()` 串行保存调用取得的快照，保存过程中产生的新修改仍需后续显式保存。
-- 不接入主程序或界面，不调用在线模型，也不保证跨进程写入或断电后绝对持久性。
+- 基础层不依赖 ViewModel 或界面；启动接入由 ConfigViewModel 完成，设置页编辑尚未绑定。不调用在线模型，也不保证跨进程写入或断电后绝对持久性。
 
 ## 功能测试记录
 
