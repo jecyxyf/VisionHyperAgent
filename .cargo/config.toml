@@ -1,2 +1,3 @@
 [build]
-target-dir = "depoly/target"
+target-dir = "bin"
+build-dir = "depoly/target"
