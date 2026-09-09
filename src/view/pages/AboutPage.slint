@@ -5,29 +5,68 @@ import { AboutSlint } from "std-widgets.slint";
 
 export component AboutPage inherits Rectangle {
     VerticalLayout {
-        spacing: 12px;
-        WorkspaceHeader { title: "关于"; }
+        spacing: 16px;
+        WorkspaceHeader {
+            icon: @image-url("../resources/ui/icons/about.svg");
+            title: "关于";
+        }
+
         GlassPanel {
+            inset: true;
             height: 280px;
             VerticalLayout {
-                padding: 28px; spacing: 16px;
+                padding: 28px;
+                spacing: 16px;
                 HorizontalLayout {
-                    spacing: 16px; cross-axis-alignment: center;
+                    spacing: 16px;
+                    cross-axis-alignment: center;
                     Rectangle {
-                        width: 48px; height: 48px; border-radius: 14px; background: Theme.accent-surface;
-                        Image { width: 26px; height: 26px; source: @image-url("../resources/ui/icons/scan.svg"); colorize: Theme.accent; }
+                        width: 48px;
+                        height: 48px;
+                        border-radius: 14px;
+                        background: Theme.accent-surface;
+                        Image {
+                            width: 26px;
+                            height: 26px;
+                            source: @image-url("../resources/ui/icons/scan.svg");
+                            colorize: Theme.accent;
+                        }
                     }
+
                     VerticalLayout {
                         spacing: 5px;
-                        Text { text: "VisionHyperAgent"; color: Theme.text; font-size: 1.45rem; font-weight: 600; }
-                        Text { text: "Agent 驱动的视觉模型工作台"; color: Theme.muted; font-size: 0.88rem; }
+                        Text {
+                            text: "VisionHyperAgent";
+                            color: Theme.text;
+                            font-size: 1.45rem;
+                            font-weight: 600;
+                        }
+
+                        Text {
+                            text: "Agent 驱动的视觉模型工作台";
+                            color: Theme.muted;
+                            font-size: 0.88rem;
+                        }
                     }
                 }
-                Rectangle { height: 1px; background: Theme.border; }
-                Text { text: "本地训练 · 离线识别"; color: Theme.muted; font-size: 0.86rem; }
-                AboutSlint {}
+
+                Rectangle {
+                    height: 1px;
+                    background: Theme.border;
+                }
+
+                Text {
+                    text: "本地训练 · 离线识别";
+                    color: Theme.muted;
+                    font-size: 0.86rem;
+                }
+
+                AboutSlint { }
             }
         }
-        Rectangle { vertical-stretch: 1; }
+
+        Rectangle {
+            vertical-stretch: 1;
+        }
     }
 }

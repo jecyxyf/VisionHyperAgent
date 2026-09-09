@@ -1,3 +1,5 @@
+import { SplitArea } from "../ui_items/SplitArea.slint";
+import { Splitter } from "../ui_items/Splitter.slint";
 import { WorkspaceHeader } from "../components/WorkspaceHeader.slint";
 import { IconButton } from "../components/IconButton.slint";
 import { ToolbarDivider } from "../components/ToolbarDivider.slint";
@@ -12,83 +14,214 @@ export component InferencePage inherits Rectangle {
     callback preview-action(string);
     in property <string> model-name;
     in-out property <int> source-choice;
+    in-out property <length> records-height: 138px;
     private property <bool> source-config-open: false;
     VerticalLayout {
-        spacing: 12px;
+        spacing: 16px;
         WorkspaceHeader {
+            icon: @image-url("../resources/ui/icons/play.svg");
             title: "运行";
-            IconButton { label: "选择模型"; icon: @image-url("../resources/ui/icons/train.svg"); activated => { root.preview-action("暂时无法加载模型。"); } }
-            ToolbarDivider {}
-            IconButton { label: "图像源配置"; icon: @image-url("../resources/ui/icons/camera.svg"); selected: root.source-config-open; activated => { root.source-config-open = !root.source-config-open; } }
-            ToolbarDivider {}
-            IconButton { label: "单次推理"; icon: @image-url("../resources/ui/icons/play.svg"); primary: true; activated => { root.preview-action("推理功能暂不可用。"); } }
-        }
-        GlassPanel {
-            vertical-stretch: 1;
-            VerticalLayout {
-                padding: 16px; spacing: 12px;
-                HorizontalLayout {
-                    height: 24px; cross-axis-alignment: center;
-                    Text { text: "图像结果"; color: Theme.text; font-size: 0.9rem; font-weight: 500; horizontal-stretch: 1; }
-                }
-                GridCanvas {
-                    vertical-stretch: 1;
-                    EmptyState {
-                        icon: @image-url("../resources/ui/icons/scan.svg");
-                        title: "等待图像";
-                    }
-                }
-                HorizontalLayout {
-                    height: 26px; spacing: 16px; cross-axis-alignment: center;
-                    Text { text: "图像源  ·  " + (root.source-choice == 1 ? "相机（未连接）" : root.source-choice == 2 ? "外部图片（未连接）" : "未配置"); color: Theme.muted; font-size: 0.8rem; }
-                    Rectangle { width: 1px; height: 12px; background: Theme.border; }
-                    Text {
-                        text: "模型  ·  " + (root.model-name == "" ? "未选择" : root.model-name);
-                        color: Theme.muted; font-size: 0.8rem;
-                        min-width: 90px; horizontal-stretch: 1; overflow: elide;
-                    }
-                    Text { text: "耗时  —"; color: Theme.subdued; font-size: 0.8rem; }
-                    Text { text: "实例  —"; color: Theme.subdued; font-size: 0.8rem; }
-                }
+            IconButton {
+                label: "选择模型";
+                icon: @image-url("../resources/ui/icons/train.svg");
+                activated => { root.preview-action("暂时无法加载模型。"); }
+            }
+
+            ToolbarDivider { }
+
+            IconButton {
+                label: "图像源配置";
+                icon: @image-url("../resources/ui/icons/camera.svg");
+                selected: root.source-config-open;
+                activated => { root.source-config-open = !root.source-config-open; }
+            }
+
+            ToolbarDivider { }
+
+            IconButton {
+                label: "单次推理";
+                icon: @image-url("../resources/ui/icons/play.svg");
+
+                activated => { root.preview-action("推理功能暂不可用。"); }
             }
         }
-        GlassPanel {
-            height: 138px;
-            VerticalLayout {
-                padding: 16px; spacing: 10px;
-                HorizontalLayout {
-                    Text { text: "识别记录"; color: Theme.text; font-size: 0.9rem; font-weight: 500; horizontal-stretch: 1; }
-                    Text { text: "网络触发  ·  未连接"; color: Theme.subdued; font-size: 0.78rem; }
-                }
-                HorizontalLayout {
-                    for label in ["触发来源", "时间", "识别结果", "耗时"]: Text {
-                        text: label; color: Theme.subdued; font-size: 0.78rem; horizontal-stretch: 1;
+
+        results-body := SplitArea {
+            vertical-stretch: 1;
+
+            GlassPanel {
+                inset: true;
+                x: 0px;
+                y: 0px;
+                width: parent.width;
+                height: max(0px, parent.height - 12px - records-splitter.position);
+
+                VerticalLayout {
+                    padding: 16px;
+                    spacing: 12px;
+                    HorizontalLayout {
+                        height: 24px;
+                        cross-axis-alignment: center;
+                        Text {
+                            text: "图像结果";
+                            color: Theme.text;
+                            font-size: 0.9rem;
+                            font-weight: 500;
+                            horizontal-stretch: 1;
+                        }
+                    }
+
+                    GridCanvas {
+                        vertical-stretch: 1;
+                        EmptyState {
+                            icon: @image-url("../resources/ui/icons/scan.svg");
+                            title: "等待图像";
+                        }
+                    }
+
+                    HorizontalLayout {
+                        height: 26px;
+                        spacing: 16px;
+                        cross-axis-alignment: center;
+                        Text {
+                            text: "图像源  ·  " + (root.source-choice == 1 ? "相机（未连接）" : root.source-choice == 2 ? "外部图片（未连接）" : "未配置");
+                            color: Theme.muted;
+                            font-size: 0.8rem;
+                        }
+
+                        Rectangle {
+                            width: 1px;
+                            height: 12px;
+                            background: Theme.border;
+                        }
+
+                        Text {
+                            text: "模型  ·  " + (root.model-name == "" ? "未选择" : root.model-name);
+                            color: Theme.muted;
+                            font-size: 0.8rem;
+                            min-width: 90px;
+                            horizontal-stretch: 1;
+                            overflow: elide;
+                        }
+
+                        Text {
+                            text: "耗时  —";
+                            color: Theme.subdued;
+                            font-size: 0.8rem;
+                        }
+
+                        Text {
+                            text: "实例  —";
+                            color: Theme.subdued;
+                            font-size: 0.8rem;
+                        }
                     }
                 }
-                Rectangle { height: 1px; background: Theme.border; }
-                Text { text: "暂无记录"; color: Theme.subdued; font-size: 0.8rem; wrap: word-wrap; }
+            }
+
+            records-splitter := Splitter {
+                x: 0px;
+                y: parent.height - 12px - self.position;
+                width: parent.width;
+                height: 12px;
+                reverse: true;
+                label: "识别记录高度";
+                value: root.records-height;
+                minimum: 120px;
+                maximum: results-body.height - 12px - 240px;
+                resized(size) => { root.records-height = size; }
+            }
+
+            GlassPanel {
+                inset: true;
+                x: 0px;
+                y: parent.height - records-splitter.position;
+                width: parent.width;
+                height: records-splitter.position;
+                VerticalLayout {
+                    padding: 16px;
+                    spacing: 10px;
+                    HorizontalLayout {
+                        Text {
+                            text: "识别记录";
+                            color: Theme.text;
+                            font-size: 0.9rem;
+                            font-weight: 500;
+                            horizontal-stretch: 1;
+                        }
+
+                        Text {
+                            text: "网络触发  ·  未连接";
+                            color: Theme.subdued;
+                            font-size: 0.78rem;
+                        }
+                    }
+
+                    HorizontalLayout {
+                        for label in ["触发来源", "时间", "识别结果", "耗时"]: Text {
+                            text: label;
+                            color: Theme.subdued;
+                            font-size: 0.78rem;
+                            horizontal-stretch: 1;
+                        }
+                    }
+
+                    Rectangle {
+                        height: 1px;
+                        background: Theme.border;
+                    }
+
+                    Text {
+                        text: "暂无记录";
+                        color: Theme.subdued;
+                        font-size: 0.8rem;
+                        wrap: word-wrap;
+                    }
+                }
             }
         }
     }
     // Local configuration sheet. Choosing a source does not connect hardware or a socket.
     if root.source-config-open: GlassPanel {
-        x: max(0px, parent.width - 298px); y: 62px;
-        width: 298px; height: 204px;
+        x: max(0px, parent.width - 298px);
+        y: 62px;
+        width: 298px;
+        height: 204px;
         background: white;
         VerticalLayout {
-            padding: 18px; spacing: 12px;
+            padding: 18px;
+            spacing: 12px;
             HorizontalLayout {
                 cross-axis-alignment: center;
-                Text { text: "图像源配置"; color: Theme.text; font-size: 1rem; font-weight: 600; horizontal-stretch: 1; }
-                IconButton { label: "关闭配置"; icon: @image-url("../resources/ui/icons/close.svg"); activated => { root.source-config-open = false; } }
+                Text {
+                    text: "图像源配置";
+                    color: Theme.text;
+                    font-size: 1rem;
+                    font-weight: 600;
+                    horizontal-stretch: 1;
+                }
+
+                IconButton {
+                    label: "关闭配置";
+                    icon: @image-url("../resources/ui/icons/close.svg");
+                    activated => { root.source-config-open = false; }
+                }
             }
+
             ComboBox {
                 height: 34px;
                 model: ["未选择", "相机 · OpenCV", "外部图片 · ZeroMQ"];
                 current-index <=> root.source-choice;
             }
-            InfoRow { label: "状态"; value: "未连接"; }
-            Rectangle { vertical-stretch: 1; }
+
+            InfoRow {
+                label: "状态";
+                value: "未连接";
+            }
+
+            Rectangle {
+                vertical-stretch: 1;
+            }
         }
     }
 }

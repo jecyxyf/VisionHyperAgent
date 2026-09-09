@@ -5,9 +5,14 @@ import { EmptyState } from "../components/EmptyState.slint";
 // The page is reserved; pretraining's actual workflow has not been specified yet.
 export component PretrainingPage inherits Rectangle {
     VerticalLayout {
-        spacing: 12px;
-        WorkspaceHeader { title: "预训练"; }
+        spacing: 16px;
+        WorkspaceHeader {
+            icon: @image-url("../resources/ui/icons/train.svg");
+            title: "预训练";
+        }
+
         GlassPanel {
+            inset: true;
             vertical-stretch: 1;
             EmptyState {
                 icon: @image-url("../resources/ui/icons/train.svg");

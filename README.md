@@ -75,7 +75,7 @@ cargo test --release --locked --target x86_64-unknown-linux-gnu --workspace
 cargo fmt --all -- --check
 ```
 
-本机使用 Rust/Cargo 1.97.1，Windows 交叉构建需要已安装的 `x86_64-pc-windows-gnu` 标准库和 MinGW-w64 链接器。没有安装系统驱动、配置 Conda 或修改全局 PATH。`depoly/tests/smoke.rs` 已从终端启动断言改为真正构造 Slint 主窗口、检查默认页面与草稿保留并渲染非空帧；该测试不启动训练、模型或相机，也不代替 Windows 实机验证。
+本机使用 Rust/Cargo 1.97.1，Windows 交叉构建需要已安装的 `x86_64-pc-windows-gnu` 标准库和 MinGW-w64 链接器。没有安装系统驱动、配置 Conda 或修改全局 PATH。`depoly/tests/smoke.rs` 已从终端启动断言改为真正构造 Slint 主窗口、检查默认页面、草稿与布局保留，并通过真实 Slint 指针事件验证各处分隔条及非空渲染；该测试不启动训练、模型或相机，也不代替 Windows 实机验证。
 
 `.cargo/config.toml` 将中间产物放在 `depoly/target/`。手动归集：
 
@@ -95,7 +95,7 @@ depoly/tools/slint/bin/slint-viewer --check src/view/MainWindow.slint
 depoly/tools/slint/bin/slint-viewer --auto-reload src/view/MainWindow.slint
 ```
 
-界面入口为 `src/view/MainWindow.slint`，主题在 `Theme.slint`，枚举与数据结构集中在 `ViewTypes.slint`，悬停提示状态位于 `UiHints.slint`。所有 UI 组件均按 `组件名.slint` 命名，一组件一文件；页面位于 `pages/`，通用及页面辅助组件位于 `components/`。实际目录见[软件框架](docs/软件框架.md#811-view-组件与实际文件)。首页已移除，默认进入运行页：
+界面入口为 `src/view/MainWindow.slint`，主题在 `Theme.slint`，枚举与数据结构集中在 `ViewTypes.slint`，悬停提示状态位于 `UiHints.slint`。所有 UI 组件均按 `组件名.slint` 命名，一组件一文件；页面位于 `pages/`；`ui_items/` 存放通用 UI 控件（当前为 `Splitter`、`SplitArea`），其他已有组合与辅助组件仍位于 `components/`。实际目录见[软件框架](docs/软件框架.md#811-view-组件与实际文件)。首页已移除，默认进入运行页：
 
 ```text
 运行
@@ -114,6 +114,9 @@ depoly/tools/slint/bin/slint-viewer --auto-reload src/view/MainWindow.slint
 - **标注**：顶部打开目录入口，批量浏览与逐图标注两种布局。
 - **预训练**：已建立独立页面与空状态，具体用途、参数和执行流程待补充，不擅自等同于特征分析或训练前检查。
 - **训练**：参数草稿、Agent 自动调参选项、效果曲线空状态和任务日志区。
+- **可拖拽布局**：独立功能面板统一使用 Splitter。主界面按约 1:8:4 初始化，导航最小 140px、文字可读优先；其余空间默认中间与 Agent 为 2:1。可调整导航／工作区／Agent、图像／识别记录、模型列表／详情、特征描述／分析区、分析／规则、图片列表／画布、训练参数／效果、效果／日志、两块曲线以及聊天历史／输入区。模型详情的分隔条仅在选中模型后出现。标题栏、工具栏、目录状态条、输入控件和单独的设置／关于卡片不拆分。
+- **布局状态**：`PaneLayout` 保存本次会话的尺寸偏好，切页和缩放不清空；窗口变小时按最小尺寸临时限制，重新启动恢复默认，不写入 `config.json`。分隔条支持鼠标／触摸拖拽及方向键，Shift 为细调，Home/End 到达尺寸边界。
+- **窗口外框与标题栏**：所有页面与 Agent 均将标题、工具按钮和内容放入同一个圆角磨砂外框；统一复用 `WorkspaceHeader`，采用 18px 外框内边距、34px 标题行、18px 标题图标、1.1rem / 600 标题文字及 34×34px 图标按钮。标题与分隔线间距为 16px，行内间距为 8px；页面工具按钮沿用 Agent 的普通玻璃样式，选中状态保留。内部分区使用较轻的内框，避免重复厚边框；软件顶部大标题不变。
 - **视觉**：全局采用绚彩渐变磨砂风格，以蓝紫、洋红、青色和蜜桃色形成背景光色；导航、按钮、表格、曲线和输入框统一使用半透明表面、玻璃高光与渐变选中态。顶部保留 26–28px 强字重中文标题和渐变 Agent 铭牌，组件为 `src/view/components/AppHeader.slint`。磨砂感由柔化背景与半透明表面实现，不依赖操作系统背景模糊。界面不显示“实例分割”字样，首版业务范围不变。
 - **聊天**：Agent 标题栏仅保留清除聊天记录按钮，不显示连接状态和设置入口；清除本地记录不清空输入草稿，连接配置仍在左侧设置页。
 - **文案**：不显示常驻的工作区名称、版本号、开发说明与重复引导。保留控件名称、数据与必要连接状态；操作反馈使用可关闭、5 秒后自动消失的提示。未连接 Agent 的本地消息明确标记“未发送”，不伪装发送成功。

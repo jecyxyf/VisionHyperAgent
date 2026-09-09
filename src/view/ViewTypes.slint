@@ -1,5 +1,20 @@
 export enum ViewPage { inference, models, preannotation, annotation, pretraining, training, settings, about }
 
+// Session-only pane preferences. Negative outer widths mean automatic 1:8:4 sizing.
+export struct PaneLayout {
+    navigation-width: length,
+    agent-width: length,
+    inference-records-height: length,
+    models-details-height: length,
+    annotation-list-width: length,
+    preannotation-editor-width: length,
+    preannotation-analysis-ratio: float,
+    training-parameters-width: length,
+    training-log-height: length,
+    training-loss-ratio: float,
+    chat-composer-height: length,
+}
+
 // Populated by a future directory adapter; the UI never invents model files.
 export struct ModelEntry {
     name: string,

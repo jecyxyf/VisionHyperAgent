@@ -1,0 +1,87 @@
+import { Theme } from "../Theme.slint";
+
+// A vertical bar resizes widths; a horizontal bar resizes heights.
+export component Splitter inherits FocusScope {
+    in property <bool> vertical: false;
+    in property <bool> reverse: false;
+    in property <length> thickness: 12px;
+    in property <length> value;
+    in property <length> minimum;
+    in property <length> maximum;
+    in property <string> label: "调整面板大小";
+    out property <length> position: root.clamp-size(root.value);
+    callback resized(length);
+    private property <bool> dragging: false;
+    private property <length> start-pointer;
+    private property <length> start-value;
+    min-width: root.vertical ? root.thickness : 0px;
+    max-width: root.vertical ? root.thickness : 100000px;
+    min-height: root.vertical ? 0px : root.thickness;
+    max-height: root.vertical ? 100000px : root.thickness;
+    preferred-width: root.vertical ? root.thickness : 0px;
+    preferred-height: root.vertical ? 0px : root.thickness;
+    horizontal-stretch: root.vertical ? 0 : 1;
+    vertical-stretch: root.vertical ? 1 : 0;
+    accessible-role: slider;
+    accessible-label: root.label;
+    accessible-value: "\{root.position / 1px}";
+    accessible-value-minimum: root.minimum / 1px;
+    accessible-value-maximum: max(root.minimum, root.maximum) / 1px;
+    accessible-action-increment => { root.resized(root.clamp-size(root.position + 16px)); }
+    accessible-action-decrement => { root.resized(root.clamp-size(root.position - 16px)); }
+
+    pure function clamp-size(size: length) -> length {
+        return max(root.minimum, min(max(root.minimum, root.maximum), size));
+    }
+    function move-by(delta: length) {
+        root.resized(root.clamp-size(root.position + (root.reverse ? -delta : delta)));
+    }
+    key-pressed(event) => {
+        if (root.vertical && event.text == Key.LeftArrow) || (!root.vertical && event.text == Key.UpArrow) {
+            root.move-by(event.modifiers.shift ? -1px : -16px);
+            return accept;
+        }
+        if (root.vertical && event.text == Key.RightArrow) || (!root.vertical && event.text == Key.DownArrow) {
+            root.move-by(event.modifiers.shift ? 1px : 16px);
+            return accept;
+        }
+        if event.text == Key.Home { root.resized(root.minimum); return accept; }
+        if event.text == Key.End { root.resized(max(root.minimum, root.maximum)); return accept; }
+        return reject;
+    }
+    Rectangle {
+        private property <length> span: root.dragging || root.has-focus ? 64px : 48px;
+        width: root.vertical ? 3px : self.span;
+        height: root.vertical ? self.span : 3px;
+        x: (parent.width - self.width) / 2;
+        y: (parent.height - self.height) / 2;
+        border-radius: 2px;
+        background: root.dragging || root.has-focus ? Theme.action-gradient :
+            (hit.has-hover ? Theme.accent : Theme.accent.transparentize(0.68));
+        animate background { duration: 120ms; }
+    }
+
+    hit := TouchArea {
+        enabled: root.enabled;
+        mouse-cursor: root.vertical ? ew-resize : ns-resize;
+        pointer-event(event) => {
+            if event.kind == PointerEventKind.cancel { root.dragging = false; return; }
+            if event.button != PointerEventButton.left { return; }
+            if event.kind == PointerEventKind.down {
+                root.focus();
+                root.start-value = root.position;
+                root.start-pointer = root.vertical ? self.absolute-position.x + self.mouse-x : self.absolute-position.y + self.mouse-y;
+                root.dragging = true;
+            } else if event.kind == PointerEventKind.up { root.dragging = false; }
+        }
+        changed pressed => { if !self.pressed { root.dragging = false; } }
+        moved => {
+            if root.dragging && self.pressed {
+                // Window coordinates stay stable while the handle itself moves.
+                let pointer = root.vertical ? self.absolute-position.x + self.mouse-x : self.absolute-position.y + self.mouse-y;
+                let delta = pointer - root.start-pointer;
+                root.resized(root.clamp-size(root.start-value + (root.reverse ? -delta : delta)));
+            }
+        }
+    }
+}

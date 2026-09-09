@@ -1,0 +1,14 @@
+// Splitter bounds, not child preferred sizes, control a resizable region.
+// Position panes explicitly here; do not feed their sizes into a parent Layout.
+// This prevents parent-size -> pane-size -> parent-layout constraint cycles.
+export component SplitArea inherits Rectangle {
+    min-width: 0px;
+    min-height: 0px;
+    preferred-width: 0px;
+    preferred-height: 0px;
+    max-width: 100000px;
+    max-height: 100000px;
+    horizontal-stretch: 1;
+    vertical-stretch: 1;
+    @children
+}

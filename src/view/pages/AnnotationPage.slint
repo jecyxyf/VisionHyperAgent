@@ -1,3 +1,5 @@
+import { SplitArea } from "../ui_items/SplitArea.slint";
+import { Splitter } from "../ui_items/Splitter.slint";
 import { WorkspaceHeader } from "../components/WorkspaceHeader.slint";
 import { IconButton } from "../components/IconButton.slint";
 import { ToolbarDivider } from "../components/ToolbarDivider.slint";
@@ -9,35 +11,96 @@ import { GridCanvas } from "../components/GridCanvas.slint";
 export component AnnotationPage inherits Rectangle {
     callback preview-action(string);
     in-out property <bool> grid-mode: true;
+    in-out property <length> list-width: 116px;
     VerticalLayout {
-        spacing: 12px;
+        spacing: 16px;
         WorkspaceHeader {
+            icon: @image-url("../resources/ui/icons/edit.svg");
             title: "标注";
-            IconButton { label: "打开图片目录"; icon: @image-url("../resources/ui/icons/folder.svg"); primary: true; activated => { root.preview-action("暂时无法打开图片目录。"); } }
-            ToolbarDivider {}
-            IconButton { label: "批量浏览"; icon: @image-url("../resources/ui/icons/grid.svg"); selected: root.grid-mode; activated => { root.grid-mode = true; } }
-            IconButton { label: "逐图标注"; icon: @image-url("../resources/ui/icons/edit.svg"); selected: !root.grid-mode; activated => { root.grid-mode = false; } }
-            ToolbarDivider {}
-            IconButton { label: "Agent 生成初标"; icon: @image-url("../resources/ui/icons/spark.svg"); activated => { root.preview-action("Agent 未连接，无法生成标注。"); } }
-            IconButton { label: "确认标注"; icon: @image-url("../resources/ui/icons/check.svg"); activated => { root.preview-action("没有可确认的标注。"); } }
-        }
-        GlassPanel {
-            height: 46px;
-            HorizontalLayout {
-                padding-left: 16px; padding-right: 16px; spacing: 10px;
-                cross-axis-alignment: center;
-                Image { source: @image-url("../resources/ui/icons/folder.svg"); width: 16px; height: 16px; colorize: Theme.subdued; }
-                Text { text: "未打开目录"; color: Theme.muted; font-size: 0.83rem; horizontal-stretch: 1; }
-                Text { text: "0 张图片"; color: Theme.subdued; font-size: 0.8rem; }
+            IconButton {
+                label: "打开图片目录";
+                icon: @image-url("../resources/ui/icons/folder.svg");
+
+                activated => { root.preview-action("暂时无法打开图片目录。"); }
+            }
+
+            ToolbarDivider { }
+
+            IconButton {
+                label: "批量浏览";
+                icon: @image-url("../resources/ui/icons/grid.svg");
+                selected: root.grid-mode;
+                activated => { root.grid-mode = true; }
+            }
+
+            IconButton {
+                label: "逐图标注";
+                icon: @image-url("../resources/ui/icons/edit.svg");
+                selected: !root.grid-mode;
+                activated => { root.grid-mode = false; }
+            }
+
+            ToolbarDivider { }
+
+            IconButton {
+                label: "Agent 生成初标";
+                icon: @image-url("../resources/ui/icons/spark.svg");
+                activated => { root.preview-action("Agent 未连接，无法生成标注。"); }
+            }
+
+            IconButton {
+                label: "确认标注";
+                icon: @image-url("../resources/ui/icons/check.svg");
+                activated => { root.preview-action("没有可确认的标注。"); }
             }
         }
+
+        GlassPanel {
+            inset: true;
+            height: 46px;
+            HorizontalLayout {
+                padding-left: 16px;
+                padding-right: 16px;
+                spacing: 10px;
+                cross-axis-alignment: center;
+                Image {
+                    source: @image-url("../resources/ui/icons/folder.svg");
+                    width: 16px;
+                    height: 16px;
+                    colorize: Theme.subdued;
+                }
+
+                Text {
+                    text: "未打开目录";
+                    color: Theme.muted;
+                    font-size: 0.83rem;
+                    horizontal-stretch: 1;
+                }
+
+                Text {
+                    text: "0 张图片";
+                    color: Theme.subdued;
+                    font-size: 0.8rem;
+                }
+            }
+        }
+
         if root.grid-mode: GlassPanel {
+            inset: true;
             vertical-stretch: 1;
             VerticalLayout {
-                padding: 18px; spacing: 16px;
+                padding: 18px;
+                spacing: 16px;
                 HorizontalLayout {
-                    Text { text: "图片浏览"; color: Theme.text; font-size: 0.9rem; font-weight: 500; horizontal-stretch: 1; }
+                    Text {
+                        text: "图片浏览";
+                        color: Theme.text;
+                        font-size: 0.9rem;
+                        font-weight: 500;
+                        horizontal-stretch: 1;
+                    }
                 }
+
                 Rectangle {
                     vertical-stretch: 1;
                     EmptyState {
@@ -45,34 +108,98 @@ export component AnnotationPage inherits Rectangle {
                         title: "打开图片目录";
                     }
                 }
-                Text { text: "待标注  0     ·     待审核  0     ·     已确认  0"; color: Theme.subdued; font-size: 0.78rem; }
+
+                Text {
+                    text: "待标注  0     ·     待审核  0     ·     已确认  0";
+                    color: Theme.subdued;
+                    font-size: 0.78rem;
+                }
             }
         }
-        if !root.grid-mode: HorizontalLayout {
-            spacing: 12px;
+        if !root.grid-mode: SplitArea {
+
             GlassPanel {
-                width: 116px;
+                inset: true;
+                x: 0px;
+                y: 0px;
+                height: parent.height;
+                width: list-splitter.position;
                 VerticalLayout {
-                    padding: 12px; spacing: 12px;
-                    Text { text: "图片列表"; color: Theme.muted; font-size: 0.8rem; }
-                    Rectangle { vertical-stretch: 1; }
+                    padding: 12px;
+                    spacing: 12px;
+                    Text {
+                        text: "图片列表";
+                        color: Theme.muted;
+                        font-size: 0.8rem;
+                    }
+
+                    Rectangle {
+                        vertical-stretch: 1;
+                    }
+
                     HorizontalLayout {
-                        IconButton { label: "上一张"; icon: @image-url("../resources/ui/icons/previous.svg"); activated => { root.preview-action("当前没有图片。"); } }
-                        Rectangle { horizontal-stretch: 1; }
-                        IconButton { label: "下一张"; icon: @image-url("../resources/ui/icons/next.svg"); activated => { root.preview-action("当前没有图片。"); } }
+                        IconButton {
+                            label: "上一张";
+                            icon: @image-url("../resources/ui/icons/previous.svg");
+                            activated => { root.preview-action("当前没有图片。"); }
+                        }
+
+                        Rectangle {
+                            horizontal-stretch: 1;
+                        }
+
+                        IconButton {
+                            label: "下一张";
+                            icon: @image-url("../resources/ui/icons/next.svg");
+                            activated => { root.preview-action("当前没有图片。"); }
+                        }
                     }
                 }
             }
+
+            list-splitter := Splitter {
+                x: self.position;
+                y: 0px;
+                width: 12px;
+                height: parent.height;
+                vertical: true;
+                label: "图片列表宽度";
+                value: root.list-width;
+                minimum: 108px;
+                maximum: root.width - 12px - 300px;
+                resized(size) => { root.list-width = size; }
+            }
+
             GlassPanel {
-                horizontal-stretch: 1;
+                inset: true;
+                x: list-splitter.position + 12px;
+                y: 0px;
+                width: max(0px, parent.width - 12px - list-splitter.position);
+                height: parent.height;
+
                 VerticalLayout {
-                    padding: 14px; spacing: 12px;
-                    Text { text: "标注画布"; color: Theme.text; font-size: 0.9rem; font-weight: 500; }
+                    padding: 14px;
+                    spacing: 12px;
+                    Text {
+                        text: "标注画布";
+                        color: Theme.text;
+                        font-size: 0.9rem;
+                        font-weight: 500;
+                    }
+
                     GridCanvas {
                         vertical-stretch: 1;
-                        EmptyState { icon: @image-url("../resources/ui/icons/edit.svg"); title: "选择图片"; }
+                        EmptyState {
+                            icon: @image-url("../resources/ui/icons/edit.svg");
+                            title: "选择图片";
+                        }
                     }
-                    Text { text: "实例  —       类别  —       审核  待开始"; color: Theme.subdued; font-size: 0.76rem; }
+
+                    Text {
+                        text: "实例  —       类别  —       审核  待开始";
+                        color: Theme.subdued;
+                        font-size: 0.76rem;
+                    }
                 }
             }
         }

@@ -56,11 +56,15 @@
 
 ## 当前阶段（随授权更新）
 
+页级窗口与 Agent 统一复用 `components/WorkspaceHeader.slint`，标题、工具按钮和内容位于同一个磨砂圆角外框。保持 Agent 基准：18px 内边距、34px 标题行、18px 图标、1.1rem / 600 标题文字、34×34px 图标按钮、8px 行内间距及 16px 分隔间距。页面标题按钮使用普通玻璃基样式，不另行放大或强化；软件顶端大标题保持原样。内层分区使用 `GlassPanel.inset`，内部 Splitter 与草稿状态保留。
+
+独立功能面板统一采用 `ui_items/Splitter.slint` 分割；`ui_items/SplitArea.slint` 内以明确几何边界安排面板，避免父尺寸参与子布局约束造成 Slint 绑定回路。顶栏、工具栏、目录状态条与输入控件保持固定。主界面默认接近 1:8:4，导航最小 140px，文字完整优先；剩余空间中间与 Agent 为 2:1，均可拖动。布局偏好存于 `ViewTypes.slint` 的 `PaneLayout`，由 `MainWindow` 持有，切页保留，仅限当前会话，不扩展 `config.json`。
+
 配置参数通过 `CONFIG.read(module, parameter)` 和 `CONFIG.write(module, parameter, value)` 访问，参数均为字符串；保留 `init / load / save`，修改仅更新内存，仍需显式保存。未知模块／参数返回错误，不自动新增字段；不恢复已删除的 `snapshot` 或闭包式 `update`。
 
 基础层已实现日志和配置单例。`src/foundation/` 只允许 `logger.rs`、`config_manager.rs`、`mod.rs` 三个文件，未经明确授权不要新增其他文件；共享错误上下文和可执行路径定位放在 `mod.rs`。日志与配置以可执行文件目录为准，KEY 明文保存但不可写入日志／提交；配置只在显式保存、首次创建或损坏恢复时落盘。日志四级异步写入，均在入队前捕获时间及源码文件／行号；`LOGGER` 仅公开 `init / debug / info / warning / error`，不恢复 `flush`、`shutdown` 或 `error_with_context`。`main.rs` 已通过 `foundation::with_logging` 托管整个运行期，正常退出自动等待已接收日志写完；未来接入事件循环及业务线程时必须保留此生命周期边界。现有 Slint 界面已接入该作用域，配置初始化与业务服务仍未接入。设计及验证记录见 `docs/plans/foundation/`；专项测试已按用户要求删除，本轮仅使用临时测试，不擅自恢复已删除文件。
 
 
-当前已完成工程骨架和可独立预览的 Slint 界面初版：`src/view/MainWindow.slint` 为入口，`Theme.slint` 统一主题，`ViewTypes.slint` 保存视图数据类型，`UiHints.slint` 保存提示状态。UI 组件一组件一文件，文件名与组件名一致（PascalCase）；`components/` 与 `pages/` 分别存放控件和页面。导航固定为“运行；模型 → 预标注、标注、预训练、训练；设置；关于”，启动进入运行页，不保留首页。“模型”文字进入独立模型库，右侧箭头只折叠子导航，不切换当前页面；目录扫描尚未接入。使用绚彩多色渐变、半透明磨砂面板和顶部小图标工具栏，避免退回灰白保守配色；界面暂不显示“实例分割”字样，但业务范围不变。不在界面常驻显示开发说明、版本号或重复引导；操作错误按需提示，不伪装成功。全局聊天位于页面条件分支之外，切页不能清空输入或训练参数草稿；Agent 标题栏只保留清除记录按钮，清除不影响输入草稿。预标注负责特征草稿和分析／规则的界面状态；修改特征清除旧分析与确认，禁止伪造 Agent 结果。预训练仅建入口，具体流程未定。Rust 宿主通过 `src/view/mod.rs` 直接打开现有 `MainWindow`，保留异步日志自动收尾，不再输出终端演示或启动／退出日志。业务服务与配置初始化仍未接入。`build.rs` 编译 Slint 1.17.1 并嵌入 UI 资源及中文字体；采用 Winit、优先 FemtoVG，软件渲染作为回退。关于页保留官方 `AboutSlint` 署名。Linux/Windows x86_64 Release 产物归集到 `bin/`，Windows 尚未实机运行。
+当前已完成工程骨架和可独立预览的 Slint 界面初版：`src/view/MainWindow.slint` 为入口，`Theme.slint` 统一主题，`ViewTypes.slint` 保存视图数据类型，`UiHints.slint` 保存提示状态。UI 组件一组件一文件，文件名与组件名一致（PascalCase）；`ui_items/` 存放通用 UI 控件（当前为 `Splitter`、`SplitArea`），`components/` 保留其他已有组合与辅助组件，`pages/` 存放页面。导航固定为“运行；模型 → 预标注、标注、预训练、训练；设置；关于”，启动进入运行页，不保留首页。“模型”文字进入独立模型库，右侧箭头只折叠子导航，不切换当前页面；目录扫描尚未接入。使用绚彩多色渐变、半透明磨砂面板和顶部小图标工具栏，避免退回灰白保守配色；界面暂不显示“实例分割”字样，但业务范围不变。不在界面常驻显示开发说明、版本号或重复引导；操作错误按需提示，不伪装成功。全局聊天位于页面条件分支之外，切页不能清空输入或训练参数草稿；Agent 标题栏只保留清除记录按钮，清除不影响输入草稿。预标注负责特征草稿和分析／规则的界面状态；修改特征清除旧分析与确认，禁止伪造 Agent 结果。预训练仅建入口，具体流程未定。Rust 宿主通过 `src/view/mod.rs` 直接打开现有 `MainWindow`，保留异步日志自动收尾，不再输出终端演示或启动／退出日志。业务服务与配置初始化仍未接入。`build.rs` 编译 Slint 1.17.1 并嵌入 UI 资源及中文字体；采用 Winit、优先 FemtoVG，软件渲染作为回退。关于页保留官方 `AboutSlint` 署名。Linux/Windows x86_64 Release 产物归集到 `bin/`，Windows 尚未实机运行。
 
 当前授权覆盖工程骨架、项目级工具、已确认的原生 Slint 界面设计以及上述底层日志和配置、现有 Slint 界面宿主接入和双平台构建。界面通过项目内 Viewer 检查与预览；`python3 depoly/tests/ui_preview.py` 生成截图供复核。不再制作网页原型。业务模块、Rust 宿主及运行环境接入按用户明确范围推进，不把本地 UI 反馈伪装成业务执行成功。

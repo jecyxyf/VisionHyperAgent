@@ -2,12 +2,36 @@ import { Theme } from "../Theme.slint";
 
 export component WorkspaceHeader inherits Rectangle {
     in property <string> title;
-    height: 54px;
-    HorizontalLayout {
-        padding-left: 4px; spacing: 12px;
-        cross-axis-alignment: center;
-        Text { text: root.title; color: Theme.text; font-size: 1.55rem; font-weight: 700; }
-        Rectangle { horizontal-stretch: 1; }
-        @children
+    in property <image> icon;
+    // Shared with Agent: 34px title row, 16px spacing and a 1px separator.
+    height: 51px;
+    VerticalLayout {
+        spacing: 16px;
+        HorizontalLayout {
+            height: 34px;
+            spacing: 8px;
+            cross-axis-alignment: center;
+            Image {
+                source: root.icon;
+                width: 18px;
+                height: 18px;
+                colorize: Theme.accent;
+            }
+
+            Text {
+                text: root.title;
+                color: Theme.text;
+                font-size: 1.1rem;
+                font-weight: 600;
+                horizontal-stretch: 1;
+            }
+
+            @children
+        }
+
+        Rectangle {
+            height: 1px;
+            background: Theme.border;
+        }
     }
 }

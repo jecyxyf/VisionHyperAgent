@@ -1,3 +1,5 @@
+import { SplitArea } from "../ui_items/SplitArea.slint";
+import { Splitter } from "../ui_items/Splitter.slint";
 import { FeatureDraft } from "../ViewTypes.slint";
 import { WorkspaceHeader } from "../components/WorkspaceHeader.slint";
 import { IconButton } from "../components/IconButton.slint";
@@ -11,6 +13,8 @@ import { EmptyState } from "../components/EmptyState.slint";
 
 export component PreannotationPage inherits Rectangle {
     in-out property <FeatureDraft> draft;
+    in-out property <length> editor-width: 300px;
+    in-out property <float> analysis-ratio: 0.5;
     in property <string> analysis;
     in property <string> rules;
     in property <bool> confirmed;
@@ -18,68 +22,208 @@ export component PreannotationPage inherits Rectangle {
     callback confirm-rules();
     callback continue-annotation();
     VerticalLayout {
-        spacing: 12px;
+        spacing: 16px;
         WorkspaceHeader {
+            icon: @image-url("../resources/ui/icons/spark.svg");
             title: "预标注";
-            IconButton { label: "分析特征"; icon: @image-url("../resources/ui/icons/spark.svg"); primary: true; activated => { root.request-analysis(); } }
-            IconButton { label: "确认标注规则"; icon: @image-url("../resources/ui/icons/check.svg"); selected: root.confirmed; activated => { root.confirm-rules(); } }
-            ToolbarDivider {}
-            IconButton { label: "进入标注"; icon: @image-url("../resources/ui/icons/next.svg"); activated => { root.continue-annotation(); } }
+            IconButton {
+                label: "分析特征";
+                icon: @image-url("../resources/ui/icons/spark.svg");
+
+                activated => { root.request-analysis(); }
+            }
+
+            IconButton {
+                label: "确认标注规则";
+                icon: @image-url("../resources/ui/icons/check.svg");
+                selected: root.confirmed;
+                activated => { root.confirm-rules(); }
+            }
+
+            ToolbarDivider { }
+
+            IconButton {
+                label: "进入标注";
+                icon: @image-url("../resources/ui/icons/next.svg");
+                activated => { root.continue-annotation(); }
+            }
         }
-        HorizontalLayout {
-            spacing: 12px;
+
+        SplitArea {
+
             GlassPanel {
-                width: 300px;
+                inset: true;
+                x: 0px;
+                y: 0px;
+                height: parent.height;
+                width: editor-splitter.position;
                 VerticalLayout {
-                    padding: 16px; spacing: 14px;
-                    Text { text: "特征描述"; color: Theme.text; font-size: 1rem; font-weight: 600; }
+                    padding: 16px;
+                    spacing: 14px;
+                    Text {
+                        text: "特征描述";
+                        color: Theme.text;
+                        font-size: 1rem;
+                        font-weight: 600;
+                    }
+
                     ScrollView {
                         vertical-stretch: 1;
                         viewport-width: self.width;
                         VerticalLayout {
                             spacing: 14px;
-                            DraftField { label: "识别目标"; placeholder: "需要识别什么对象"; value <=> root.draft.target; }
-                            FeatureTextArea { height: 140px; label: "外观与关键特征"; placeholder: "形状、颜色、纹理、边界…"; value <=> root.draft.appearance; }
-                            FeatureTextArea { height: 108px; label: "类别区别"; placeholder: "如何区分类似对象"; value <=> root.draft.distinctions; }
-                            FeatureTextArea { height: 108px; label: "排除情况"; placeholder: "哪些情况不应标注"; value <=> root.draft.exclusions; }
-                            Rectangle { vertical-stretch: 1; }
-                        }
-                    }
-                }
-            }
-            VerticalLayout {
-                spacing: 12px;
-                GlassPanel {
-                    vertical-stretch: 1;
-                    VerticalLayout {
-                        padding: 16px; spacing: 12px;
-                        Text { text: "Agent 分析"; color: Theme.text; font-size: 1rem; font-weight: 600; }
-                        if root.analysis == "": EmptyState { icon: @image-url("../resources/ui/icons/spark.svg"); title: "等待分析"; vertical-stretch: 1; }
-                        if root.analysis != "": ScrollView {
-                            vertical-stretch: 1;
-                            viewport-width: self.width;
-                            VerticalLayout {
-                                Text { text: root.analysis; color: Theme.text; font-size: 0.95rem; wrap: word-wrap; }
-                                Rectangle { vertical-stretch: 1; }
+                            DraftField {
+                                label: "识别目标";
+                                placeholder: "需要识别什么对象";
+                                value <=> root.draft.target;
+                            }
+
+                            FeatureTextArea {
+                                height: 140px;
+                                label: "外观与关键特征";
+                                placeholder: "形状、颜色、纹理、边界…";
+                                value <=> root.draft.appearance;
+                            }
+
+                            FeatureTextArea {
+                                height: 108px;
+                                label: "类别区别";
+                                placeholder: "如何区分类似对象";
+                                value <=> root.draft.distinctions;
+                            }
+
+                            FeatureTextArea {
+                                height: 108px;
+                                label: "排除情况";
+                                placeholder: "哪些情况不应标注";
+                                value <=> root.draft.exclusions;
+                            }
+
+                            Rectangle {
+                                vertical-stretch: 1;
                             }
                         }
                     }
                 }
+            }
+
+            editor-splitter := Splitter {
+                x: self.position;
+                y: 0px;
+                width: 12px;
+                height: parent.height;
+                vertical: true;
+                label: "特征描述宽度";
+                value: root.editor-width;
+                minimum: 220px;
+                maximum: root.width - 12px - 240px;
+                resized(size) => { root.editor-width = size; }
+            }
+
+            analysis-column := SplitArea {
+                x: editor-splitter.position + 12px;
+                y: 0px;
+                width: max(0px, parent.width - 12px - editor-splitter.position);
+                height: parent.height;
+                horizontal-stretch: 1;
+
                 GlassPanel {
-                    vertical-stretch: 1;
+                    inset: true;
+                    x: 0px;
+                    y: 0px;
+                    width: parent.width;
+                    height: analysis-splitter.position;
                     VerticalLayout {
-                        padding: 16px; spacing: 12px;
-                        HorizontalLayout {
-                            Text { text: "标注规则"; color: Theme.text; font-size: 1rem; font-weight: 600; horizontal-stretch: 1; }
-                            if root.confirmed: Text { text: "已确认"; color: Theme.accent; font-size: 0.84rem; }
+                        padding: 16px;
+                        spacing: 12px;
+                        Text {
+                            text: "Agent 分析";
+                            color: Theme.text;
+                            font-size: 1rem;
+                            font-weight: 600;
                         }
-                        if root.rules == "": EmptyState { icon: @image-url("../resources/ui/icons/check.svg"); title: "等待规则"; vertical-stretch: 1; }
+
+                        if root.analysis == "": EmptyState {
+                            icon: @image-url("../resources/ui/icons/spark.svg");
+                            title: "等待分析";
+                            vertical-stretch: 1;
+                        }
+                        if root.analysis != "": ScrollView {
+                            vertical-stretch: 1;
+                            viewport-width: self.width;
+                            VerticalLayout {
+                                Text {
+                                    text: root.analysis;
+                                    color: Theme.text;
+                                    font-size: 0.95rem;
+                                    wrap: word-wrap;
+                                }
+
+                                Rectangle {
+                                    vertical-stretch: 1;
+                                }
+                            }
+                        }
+                    }
+                }
+
+                analysis-splitter := Splitter {
+                    x: 0px;
+                    y: self.position;
+                    width: parent.width;
+                    height: 12px;
+                    label: "Agent 分析高度";
+                    value: (analysis-column.height - 12px) * root.analysis-ratio;
+                    minimum: 180px;
+                    maximum: analysis-column.height - 12px - 180px;
+                    resized(size) => { root.analysis-ratio = size / max(1px, analysis-column.height - 12px); }
+                }
+
+                GlassPanel {
+                    inset: true;
+                    x: 0px;
+                    y: analysis-splitter.position + 12px;
+                    width: parent.width;
+                    height: max(0px, parent.height - 12px - analysis-splitter.position);
+
+                    VerticalLayout {
+                        padding: 16px;
+                        spacing: 12px;
+                        HorizontalLayout {
+                            Text {
+                                text: "标注规则";
+                                color: Theme.text;
+                                font-size: 1rem;
+                                font-weight: 600;
+                                horizontal-stretch: 1;
+                            }
+
+                            if root.confirmed: Text {
+                                text: "已确认";
+                                color: Theme.accent;
+                                font-size: 0.84rem;
+                            }
+                        }
+
+                        if root.rules == "": EmptyState {
+                            icon: @image-url("../resources/ui/icons/check.svg");
+                            title: "等待规则";
+                            vertical-stretch: 1;
+                        }
                         if root.rules != "": ScrollView {
                             vertical-stretch: 1;
                             viewport-width: self.width;
                             VerticalLayout {
-                                Text { text: root.rules; color: Theme.text; font-size: 0.95rem; wrap: word-wrap; }
-                                Rectangle { vertical-stretch: 1; }
+                                Text {
+                                    text: root.rules;
+                                    color: Theme.text;
+                                    font-size: 0.95rem;
+                                    wrap: word-wrap;
+                                }
+
+                                Rectangle {
+                                    vertical-stretch: 1;
+                                }
                             }
                         }
                     }
