@@ -1,70 +1,217 @@
-# 仓库 Agent 指引
+# AGENTS.md
 
-适用于 VisionHyperAgent 仓库及其子目录，面向开发 Agent，不是产品内部 Codex Agent 的系统提示词。
+本文件向维护 VisionHyperAgent 仓库的开发 Agent 提供项目上下文和工作指令，适用于本仓库及其子目录。它不是产品内部 Codex Agent 的系统提示词，也不替代用户授权、产品需求文档或团队编码规范。
 
-## 项目概况
+项目目标：构建 Agent 驱动的视觉模型桌面软件。首版仅做实例分割，流程为导入图片、Agent 交互初标、用户修改确认、自动训练与选模、同一软件离线识别。下文区分已确认的技术方向与当前实现状态，不得混淆。
 
-一个 Agent 驱动的视觉模型桌面软件。首版仅做实例分割：导入图片 → Agent 交互初标 → 用户修改确认 → Agent 自动训练、调参、评估和选模 → 同一软件离线识别。
+## 仓库布局与重要目录
 
-技术路线：模块化单体，Rust 侧先采用单 Cargo 包，保持一个 Rust + Slint 主程序；私有 Python/PyTorch + YOLO26 训练；Rust 通过 `ultralytics-inference` 与 ONNX Runtime 执行生产推理。
+### 源码分层
 
-## 关键约束
+Rust 侧采用单 Cargo 包、模块化单体，不提前拆分多成员 workspace、前后端主程序或内部 ZeroMQ 总线。六层目录如下；各层具体业务模块按后续授权补充。
 
-- 支持 Linux、Windows，仅支持 NVIDIA GPU；按软件发行版的运行时兼容要求判断，不设置型号白名单。
-- 直接依赖开源 Codex CLI 和 Ultralytics 官方 YOLO 技能；不另建同类 Agent 引擎，不增加独立辅助标注模型。
-- 按钮与对话共享应用服务，产品 Skills 覆盖业务功能；各层具体模块后续补充，不提前拆前后端主程序或建立内部 ZeroMQ 总线。
-- 软件自行携带并管理 runtime，不要求用户配置 Conda/Python；Rust 推理不依赖 Python 训练进程。
-- 允许向配置的在线大模型服务发送任务图片；训练计算在本机，生产识别不依赖互联网或在线 Agent。
-- OpenCV 采集相机图像，ZeroMQ 接收外部图片并返回结果；其他视觉任务和通信方式后续扩展。
+| 层次 | 目录 |
+| --- | --- |
+| View | `src/view/` |
+| ViewModel | `src/view_model/` |
+| Agent | `src/agent/` |
+| 应用服务 | `src/application/` |
+| 驱动／适配 | `src/drivers/` |
+| 基础服务 | `src/foundation/` |
 
-## 目录定位
+### 界面与配套目录
 
-- 六层映射：View → `src/view/`；ViewModel → `src/view_model/`；Agent → `src/agent/`；应用 → `src/application/`；驱动／适配 → `src/drivers/`；基础 → `src/foundation/`。
-- 配套目录：`src/depends/` 管理依赖材料，`src/view/resources/` 统一保留产品资源（含 `ui/`、`agent/` 占位）；`depoly/` 集中放置打包、工具、测试和缓存，Python 源码位于 `depoly/packaging/python/`。
-- `bin/windows/`、`bin/linux/` 归集编译产物，不提交 Git。骨架目录已建立，业务模块尚未实现；完整结构与后续文件见软件框架第 8 节。
+| 位置 | 用途 |
+| --- | --- |
+| `src/view/ui_items/` | 通用 UI 控件，当前包含 `Splitter`、`SplitArea` |
+| `src/view/components/` | 其他已有组合与辅助组件，不未经授权额外迁移 |
+| `src/view/pages/` | 页面组件 |
+| `src/view/resources/` | 产品资源；`ui/` 放界面资源，`agent/` 保留产品 Agent 资源位置 |
+| `src/depends/` | 第三方依赖来源、版本与受控材料，不是业务模块 |
+| `depoly/` | 打包、开发工具、测试与缓存，保留该目录拼写 |
+| `depoly/packaging/python/` | 私有 Python 训练源码位置 |
+| `depoly/tests/` | 项目测试；Rust 测试目标须在 `Cargo.toml` 显式注册 |
+| `depoly/target/` | Cargo 生成内容，由 `.cargo/config.toml` 指定，不提交 Git |
+| `bin/linux/`、`bin/windows/` | 各平台编译产物，不提交 Git |
 
-## 按任务读取上下文
+### 按任务查阅资料
+
+先定位任务，再读取相关材料；已掌握且未变化的内容不重复加载。上下文不足或出现跨模块影响时扩大阅读范围，不得为省略阅读而跳过相关约束。
 
 | 任务 | 阅读范围 |
 | --- | --- |
-| 首次了解项目、确认整体定位 | [README](README.md) |
-| 产品功能、流程或架构调整 | [PRD](docs/产品需求文档.md) 与[软件框架](docs/软件框架.md)的相关章节，区分已确认、候选和未决事项 |
-| 目录布局与代码定位 | [软件框架](docs/软件框架.md)的“目录分层”章节和本文件的目录映射 |
-| 修改代码 | [团队编码规范](docs/团队编码规范.md) 的通用规则及相关语言/模块章节，以及目标实现、调用方和测试 |
-| Slint 界面设计与验证 | [项目 Slint 技能](.agents/skills/slint/SKILL.md) 与[本地工具说明](depoly/tools/slint/README.md)，使用项目内工具路径或命令级 PATH |
+| 了解项目定位与运行入口 | [README](README.md) |
+| 调整产品功能或架构 | [PRD](docs/产品需求文档.md)、[软件框架](docs/软件框架.md)相关章节；区分已确认、候选和未决事项 |
+| 定位目录与模块 | 本节及软件框架的目录分层章节 |
+| 修改代码或接口 | [团队编码规范](docs/团队编码规范.md)的通用及相关语言章节、目标实现、调用方和测试 |
+| 修改 Slint 界面 | 本文件“UI 界面设计要求”、[项目 Slint 技能](.agents/skills/slint/SKILL.md)、[本地工具说明](depoly/tools/slint/README.md) |
 | 修改文档 | 目标文档及受影响的引用，不默认通读全部需求和规范 |
-| 跨模块或接口变更 | 相关上下游实现、接口约定与测试，核查兼容影响 |
 
-先定位再阅读，不默认扫描整个仓库。已在当前上下文掌握且未变化的内容不必重复加载；上下文不足或发现跨模块影响时扩大范围，不能为减少阅读而跳过相关约束。
+## 项目运行方式
 
-## 协作规则
+### 当前可运行范围
 
-- 以用户最新明确要求为准；不把 PRD 未决项擅自变成默认值。调整已确认方向前说明证据、影响并请求确认。
-- 新增功能、行为或接口变更，先说明范围与方案并取得必要确认。
-- 修改前检查工作树，保留用户已有变更；只处理本次范围，不顺带重构、升级依赖或调整许可证。
-- 需求变更同步相关文档；仅修复入口引用时，不改动产品需求正文。
-- 不提交凭据、用户图片/数据集、模型权重或完整 runtime；在线处理不超出任务数据授权范围。
-- 未经用户要求，不自行提交、推送、重写 Git 历史或恢复已删除文件。
+- Rust 主程序通过 `src/view/mod.rs` 打开 `MainWindow.slint`，默认进入运行页。`build.rs` 使用 Slint 1.17.1 编译并嵌入界面资源与中文字体；后端为 Winit，优先 FemtoVG，软件渲染作为回退。
+- 日志与配置底层已实现；主程序托管异步日志的自动退出收尾，不打印终端演示或启动／退出日志。
+- 配置初始化、目录扫描、训练、推理、Agent 等业务服务尚未接入界面。预标注目前只实现特征草稿及分析／规则的界面状态；预训练仅建入口，具体流程未定。
+- 已生成 Linux、Windows x86_64 桌面界面产物；Windows 尚未实机运行。系统运行条件、产物位置与兼容边界以 README 为准，不将界面版本描述为完整生产平台。
+
+### 启动命令
+
+以下命令从仓库根目录执行：
+
+```sh
+# 开发运行：启动 Rust + Slint 主程序
+cargo run --locked
+
+# 运行已归集的 Linux 产物
+./bin/linux/vision-hyper-agent
+
+# 独立预览界面并自动重载
+./depoly/tools/slint/bin/slint-viewer --auto-reload src/view/MainWindow.slint
+```
+
+Windows 产物入口为 `bin/windows/vision-hyper-agent.exe`。已编译的界面程序不要求最终用户安装 Rust、Slint Viewer 或 Python；这不表示训练 runtime 已接入。
+
+使用项目内工具路径或命令级 PATH，不为方便开发而修改全局工具环境。依赖缓存完整时，Cargo 命令可增加 `--offline`。
+
+## 构建、测试与检查命令
+
+按本次修改选择相关检查，不机械运行无关测试，也不把未运行项写成通过。
+
+```sh
+# Linux / Windows Release 构建
+cargo build --release --locked --target x86_64-unknown-linux-gnu
+cargo build --release --locked --target x86_64-pc-windows-gnu
+
+# Rust 格式与工作区测试
+cargo fmt --all -- --check
+cargo test --release --locked --target x86_64-unknown-linux-gnu --workspace
+
+# 当前工具链已安装 Clippy 时执行
+cargo clippy --locked --workspace --all-targets -- -D warnings
+
+# Slint 编译与多页面截图
+./depoly/tools/slint/bin/slint-viewer --check src/view/MainWindow.slint
+python3 depoly/tests/ui_preview.py
+
+# 修改的空白检查
+git diff --check
+```
+
+- Windows 交叉构建需要对应 Rust 目标标准库及 MinGW-w64 链接器；缺少环境时如实报告，不擅自安装系统驱动或调整全局环境。
+- UI 冒烟测试覆盖窗口构造、渲染、分隔条交互与状态保留，不代表模型、GPU、相机或业务全流程验收。
+- 截图位于 `depoly/target/ui-preview/light/`，必须查看实际渲染结果，不能只检查截图文件是否生成。
+- 新增 Rust 测试时同步注册 Cargo 测试目标。日志与配置专项测试曾按用户要求删除，不自行恢复；验证方式按当前任务范围确定。
+
+## 代码要求
+
+### 已确认的技术方向
+
+以下是实现约束，不表示相应功能已经完成。
+
+| 项目 | 要求 |
+| --- | --- |
+| 应用主体 | 一个 Rust + Slint 主程序，遵循六层目录与模块边界 |
+| Agent 接入 | 直接依赖开源 Codex CLI 与 Ultralytics 官方 YOLO 技能，不自建同类 Agent 引擎，不增加独立辅助标注模型 |
+| 训练 | 使用软件管理的私有 Python / PyTorch 与 YOLO26，在本机计算 |
+| 生产推理 | Rust 通过 `ultralytics-inference` 与 ONNX Runtime 执行，不依赖 Python 训练进程、互联网或在线 Agent |
+| 硬件与系统 | Linux、Windows，仅支持 NVIDIA GPU；按软件发行版的 runtime 兼容要求判断，不设型号白名单 |
+| 图像与通信 | OpenCV 采集相机图像；ZeroMQ 接收外部图片并返回结果，其他通信方式与视觉任务后续扩展 |
+| runtime | 由软件自行携带并管理，不要求最终用户配置 Conda/Python |
+
+按钮与对话必须共享应用服务，产品 Skills 覆盖业务功能；不要在不同交互入口重复实现业务逻辑。未决的模块、协议或兼容要求不得擅自确定。
+
+### 实现与修改原则
+
+- 遵循团队编码规范中的语言、命名、错误处理与模块要求。修改前读取目标实现、相关调用方及测试；接口变化同时核查上下游兼容影响。
+- 保持职责边界和修改范围，只处理当前任务，不顺带重构、升级依赖或调整许可证。
 - 核查上游行为时使用所选版本的官方资料，区分文档说明、源码存在与本项目实测通过。
+- 需求或行为变更同步相关文档；仅修复入口引用时，不改动产品需求正文。
 
-## 验证与汇报
+### 基础层文件边界
 
-- 按实际工程配置执行与改动相关的检查；不虚构源码、命令、接口或验证结果。
-- 骨架检查命令见 README；Cargo 输出由 `.cargo/config.toml` 指向 `depoly/target/`，`depoly/tests/` 的测试目标须在 `Cargo.toml` 显式注册。Slint 界面需另外执行 Viewer 编译与截图检查；骨架测试不覆盖 GPU 或产品功能。
-- 文档修改检查链接、编码、末尾换行和尾随空白，并运行 `git diff --check`；新增未跟踪文件需单独检查。
-- 汇报修改内容、实际验证结果、未执行项和剩余风险，不将未执行描述为通过。
+`src/foundation/` 只允许 `logger.rs`、`config_manager.rs`、`mod.rs` 三个文件。共享错误上下文和可执行目录定位放在 `mod.rs`，未经明确授权不得新增其他基础层文件。
 
-## 当前阶段（随授权更新）
+### 日志接口与生命周期
 
-页级窗口与 Agent 统一复用 `components/WorkspaceHeader.slint`，标题、工具按钮和内容位于同一个磨砂圆角外框。保持 Agent 基准：18px 内边距、34px 标题行、18px 图标、1.1rem / 600 标题文字、34×34px 图标按钮、8px 行内间距及 16px 分隔间距。页面标题按钮使用普通玻璃基样式，不另行放大或强化；软件顶端大标题保持原样。内层分区使用 `GlassPanel.inset`，内部 Splitter 与草稿状态保留。
+- `LOGGER` 为进程内线程安全单例，只公开 `init / debug / info / warning / error`；不恢复已删除的 `flush`、`shutdown` 或 `error_with_context`。
+- 四级日志均异步写入文件，并在调用线程中捕获时间、源码文件和行号；日志路径以可执行程序目录为准。
+- `main.rs` 通过 `foundation::with_logging` 托管整个运行期，正常退出自动等待已接收日志写完。当前 Slint 事件循环已在此作用域内，后续接入业务线程时必须保留该生命周期边界。
+- 详细接口、留存与故障边界遵循 [Logger 设计](docs/plans/foundation/Logger.md)，不要将正常收尾能力描述为故障存储或强制终止下的零丢失保证。
 
-独立功能面板统一采用 `ui_items/Splitter.slint` 分割；`ui_items/SplitArea.slint` 内以明确几何边界安排面板，避免父尺寸参与子布局约束造成 Slint 绑定回路。顶栏、工具栏、目录状态条与输入控件保持固定。主界面默认接近 1:8:4，导航最小 140px，文字完整优先；剩余空间中间与 Agent 为 2:1，均可拖动。布局偏好存于 `ViewTypes.slint` 的 `PaneLayout`，由 `MainWindow` 持有，切页保留，仅限当前会话，不扩展 `config.json`。
+### 配置接口与保存规则
 
-配置参数通过 `CONFIG.read(module, parameter)` 和 `CONFIG.write(module, parameter, value)` 访问，参数均为字符串；保留 `init / load / save`，修改仅更新内存，仍需显式保存。未知模块／参数返回错误，不自动新增字段；不恢复已删除的 `snapshot` 或闭包式 `update`。
+- `CONFIG` 为进程内线程安全单例，通过 `read(module, parameter)` 和 `write(module, parameter, value)` 访问参数；参数均为字符串，保留 `init / load / save`。
+- `write` 只修改内存，仍需显式 `save`；首次创建配置与损坏恢复是自动写盘的例外。未知模块或参数返回错误，不自动新增字段；不恢复 `snapshot` 或闭包式 `update`。
+- `config.json` 位于可执行程序目录，目前只保存 Agent 的地址、KEY 和模型名称。KEY 按要求明文保存，但不得写入日志或提交仓库。
+- 配置初始化与界面连接仍未接入，不因底层对象已实现就声称设置页已可用。详细约定见 [ConfigManager 设计](docs/plans/foundation/ConfigManager.md)。
 
-基础层已实现日志和配置单例。`src/foundation/` 只允许 `logger.rs`、`config_manager.rs`、`mod.rs` 三个文件，未经明确授权不要新增其他文件；共享错误上下文和可执行路径定位放在 `mod.rs`。日志与配置以可执行文件目录为准，KEY 明文保存但不可写入日志／提交；配置只在显式保存、首次创建或损坏恢复时落盘。日志四级异步写入，均在入队前捕获时间及源码文件／行号；`LOGGER` 仅公开 `init / debug / info / warning / error`，不恢复 `flush`、`shutdown` 或 `error_with_context`。`main.rs` 已通过 `foundation::with_logging` 托管整个运行期，正常退出自动等待已接收日志写完；未来接入事件循环及业务线程时必须保留此生命周期边界。现有 Slint 界面已接入该作用域，配置初始化与业务服务仍未接入。设计及验证记录见 `docs/plans/foundation/`；专项测试已按用户要求删除，本轮仅使用临时测试，不擅自恢复已删除文件。
+## UI 界面设计要求
 
+### 视觉与组件组织
 
-当前已完成工程骨架和可独立预览的 Slint 界面初版：`src/view/MainWindow.slint` 为入口，`Theme.slint` 统一主题，`ViewTypes.slint` 保存视图数据类型，`UiHints.slint` 保存提示状态。UI 组件一组件一文件，文件名与组件名一致（PascalCase）；`ui_items/` 存放通用 UI 控件（当前为 `Splitter`、`SplitArea`），`components/` 保留其他已有组合与辅助组件，`pages/` 存放页面。导航固定为“运行；模型 → 预标注、标注、预训练、训练；设置；关于”，启动进入运行页，不保留首页。“模型”文字进入独立模型库，右侧箭头只折叠子导航，不切换当前页面；目录扫描尚未接入。使用绚彩多色渐变、半透明磨砂面板和顶部小图标工具栏，避免退回灰白保守配色；界面暂不显示“实例分割”字样，但业务范围不变。不在界面常驻显示开发说明、版本号或重复引导；操作错误按需提示，不伪装成功。全局聊天位于页面条件分支之外，切页不能清空输入或训练参数草稿；Agent 标题栏只保留清除记录按钮，清除不影响输入草稿。预标注负责特征草稿和分析／规则的界面状态；修改特征清除旧分析与确认，禁止伪造 Agent 结果。预训练仅建入口，具体流程未定。Rust 宿主通过 `src/view/mod.rs` 直接打开现有 `MainWindow`，保留异步日志自动收尾，不再输出终端演示或启动／退出日志。业务服务与配置初始化仍未接入。`build.rs` 编译 Slint 1.17.1 并嵌入 UI 资源及中文字体；采用 Winit、优先 FemtoVG，软件渲染作为回退。关于页保留官方 `AboutSlint` 署名。Linux/Windows x86_64 Release 产物归集到 `bin/`，Windows 尚未实机运行。
+- 只实现原生 Slint 界面，不制作网页原型。采用亮色、绚彩渐变、半透明磨砂和大圆角，避免退回灰白保守配色。
+- 颜色与视觉样式集中于 `Theme.slint`，不在各页面重复定义不同风格。组件一组件一文件，文件名与组件名一致，使用 PascalCase。
+- 界面入口为 `MainWindow.slint`；视图枚举、数据类型及布局偏好在 `ViewTypes.slint`，提示状态在 `UiHints.slint`。目录职责遵循第一节。
 
-当前授权覆盖工程骨架、项目级工具、已确认的原生 Slint 界面设计以及上述底层日志和配置、现有 Slint 界面宿主接入和双平台构建。界面通过项目内 Viewer 检查与预览；`python3 depoly/tests/ui_preview.py` 生成截图供复核。不再制作网页原型。业务模块、Rust 宿主及运行环境接入按用户明确范围推进，不把本地 UI 反馈伪装成业务执行成功。
+### 窗口外框与标题栏
+
+页级窗口与 Agent 的标题、图标按钮、分隔线和内容必须处于同一个大圆角磨砂外框中，标题不能悬在框外。内部分区采用 `GlassPanel.inset` 弱化边框和阴影，避免多层厚框。
+
+页标题与 Agent 共用 `components/WorkspaceHeader.slint`，按钮复用 `IconButton`，以 Agent 为统一基准：
+
+| 项目 | 统一值 |
+| --- | --- |
+| 外框内边距 | 18px |
+| 标题行高度 | 34px |
+| 标题文字 | 1.1rem，字重 600 |
+| 标题图标 | 18×18px |
+| 图标按钮 | 34×34px，同款普通玻璃样式 |
+| 行内间距 | 8px |
+| 分隔间距／分隔线 | 16px／1px |
+
+保留必要的选中、悬停和按下反馈，不单独放大页标题或强化标题栏按钮。软件最顶部的 `AppHeader` 大标题不随页标题缩小；关于页保留官方 `AboutSlint` 署名。
+
+### 分隔布局与尺寸状态
+
+- 主界面默认接近“导航 : 工作区 : Agent = 1:8:4”。导航文字完整优先，最小宽度 140px；剩余空间默认按中间与 Agent 为 2:1 分配，用户拖动后可改变比例。
+- 独立功能面板之间统一使用 `ui_items/Splitter.slint`，包括三列主布局、图像与记录、列表与详情、参数与效果、聊天历史与输入区域等。顶栏、工具栏、目录状态条和输入控件保持固定，只有一个功能面板时不添加无意义分隔条。
+- 设置相邻面板的最小尺寸，支持鼠标／触摸拖拽及方向键调整，避免跳动、抖动或面板被拖没。`ui_items/SplitArea.slint` 内使用明确几何边界，避免父尺寸参与子布局约束造成绑定回路。
+- `PaneLayout` 由 `MainWindow` 在条件页面之外持有。切页、折叠和缩放不能清空布局偏好；小窗口按边界临时限制显示尺寸，不覆盖用户偏好。重新启动恢复默认，不将布局写入 `config.json`。
+
+### 导航、聊天与文案
+
+- 导航固定为“运行；模型 → 预标注、标注、预训练、训练；设置；关于”。启动进入运行页，不保留首页；点击“模型”进入模型库，右侧箭头只折叠子导航，不切换页面。
+- 全局 Agent 面板位于页面条件分支之外，切页不能清空聊天输入或训练参数草稿。Agent 标题栏只保留清除记录按钮，不显示连接状态或设置按钮；清除记录不影响输入草稿。
+- 不在主要操作界面常驻开发说明、预览标识、冗余版本提示或重复引导，必要第三方署名保留在关于页。界面暂不显示“实例分割”字样，但首版业务范围不变。
+- 操作错误按需提示，未接入的业务、目录扫描或 Agent 分析不得伪装成功。修改预标注特征必须清除旧分析、规则与确认状态，禁止伪造 Agent 结果。
+
+## 约束与禁止事项
+
+### 授权与范围
+
+- 以用户最新明确要求为准。调整已确认方向前，说明证据、影响并请求确认；新增功能、行为或接口变更，先说明范围与方案并取得必要确认。
+- 当前已授权范围包括工程骨架、项目级工具、原生 Slint 界面、日志与配置底层、宿主接入和双平台构建。该范围不自动授权继续开展训练、推理、Agent、相机、通信或 runtime 等新任务。
+- 修改前检查工作树并保留用户已有变更。不得把 PRD 未决项擅自变成默认值，不得因目录已有占位文件就假定对应模块已实现。
+
+### 数据与安全
+
+- 不提交凭据、用户图片／数据集、模型权重或完整 runtime。运行配置中的明文 KEY 不得进入日志、诊断展示或版本库。
+- 可按任务授权向配置的在线大模型服务发送任务图片，但授权不扩展到无关文件或数据；训练计算仍在本机，生产识别不依赖在线服务。
+
+### Git 操作
+
+- 提交、推送、合并等操作按用户明确要求执行；用户要求提交不等于授权推送。
+- 不自行重写 Git 历史或恢复已删除文件，不将 `bin/` 和编译缓存加入版本库。
+- 不虚构 PR 审查、CI 执行或验证结论，不将未完成工作描述为已交付。
+
+## 完成标准与验证方式
+
+完成任务前，按实际修改范围核查以下事项：
+
+1. **范围落实**：已完成用户本次要求，没有混入未授权的功能、重构或依赖调整。
+2. **代码验证**：执行与修改相关的构建和测试；接口变化已核查调用方及兼容影响。编译通过、单元测试通过不等于业务全流程或跨平台验收通过。
+3. **UI 验证**：执行项目内 Viewer 编译与截图检查，查看实际渲染，并验证受影响的小窗口布局、拖拽边界和切页状态；不能只凭编译成功宣称界面已验证。
+4. **文档一致**：同步受影响的说明与引用，检查链接、UTF-8 编码、末尾换行及尾随空白，执行 `git diff --check`；新增未跟踪文件需单独检查。
+5. **如实交付**：说明修改内容、实际验证结果、未执行项与剩余风险；存在平台、工具或业务环境缺口时明确标注，不将未执行描述为通过。
