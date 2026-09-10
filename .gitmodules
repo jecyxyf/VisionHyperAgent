@@ -1,0 +1,6 @@
+[submodule "codex"]
+	path = src/depends/codex
+	url = https://github.com/openai/codex.git
+[submodule "rust-zmq"]
+	path = src/depends/rust-zmq
+	url = https://github.com/erickt/rust-zmq.git

@@ -140,7 +140,7 @@ depoly/tools/slint/bin/slint-viewer --screenshot depoly/target/ui-preview/run-li
 
 `src/view/` 已包含实际 Slint 界面与自绘 SVG 资源；`depoly/packaging/python/` 和打包目录仍为占位。产品资源统一保留在 `src/view/resources/`，其中 `ui/` 用于界面资源，`agent/` 保留产品 Agent 资源占位。`build.rs` 已用于界面编译；`depoly/packaging/python/pyproject.toml` 及训练功能依赖仍待后续实际接入，不提供虚假的训练实现。
 
-[src/depends/](src/depends/README.md) 用于管理第三方依赖来源与受控材料，目前已记录 Slint 宿主依赖及许可；Rust 依赖由 Cargo 获取与锁定。`depoly/` 集中放置打包内容、开发辅助工具、集成测试和编译缓存，不是独立后端程序。
+[src/depends/](src/depends/README.md) 用于管理第三方依赖来源与受控材料，目前已记录 Slint 宿主依赖及许可，并纳入 Codex CLI、Rust ZeroMQ 源码子模块。两者与当前软件版本绑定的版本号、来源分支、完整提交 SHA 及恢复命令统一记录在[源码依赖基线](src/depends/README.md#当前版本绑定的源码依赖)，不随上游分支自动更新；Cargo 依赖仍由 `Cargo.toml`、`Cargo.lock` 声明与锁定。`depoly/` 集中放置打包内容、开发辅助工具、集成测试和编译缓存，不是独立后端程序。
 
 ## 首版范围
 
@@ -187,7 +187,7 @@ depoly/tools/slint/bin/slint-viewer --screenshot depoly/target/ui-preview/run-li
 | 首版外部通信 | ZeroMQ |
 | 环境交付 | 一个软件自行管理所需 runtime；推理路径不依赖 Python 训练进程 |
 
-具体依赖版本、操作系统最低版本、CPU 架构、GPU/驱动兼容矩阵和通信消息格式，需在后续设计中确认。
+Codex CLI 和 Rust ZeroMQ 的源码版本已按上述依赖基线固定；其他尚未锁定的依赖版本、操作系统最低版本、CPU 架构、GPU/驱动兼容矩阵和通信消息格式，需在后续设计中确认。
 
 ## 文档
 
