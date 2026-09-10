@@ -12,6 +12,7 @@
 | Rust ZeroMQ（`erickt/rust-zmq`，crate `zmq`） | `src/depends/rust-zmq` | `0.10.0` | `master` | `5d78967001abb1aece2fba878d6151cb66cd1767` |
 
 - 版本字段分别来自固定提交中的 [Codex Cargo.toml](codex/codex-rs/Cargo.toml) 和 [zmq Cargo.toml](rust-zmq/Cargo.toml)。两者均按源码快照锁定，不表示选用了同名发行标签；Codex 的 `0.0.0` 不能作为正式发行版本号使用。
+- Rust ZeroMQ 已确认固定为来自 `master` 的 `5d78967001ab` 源码快照（完整 SHA 见表），不切换到 `v0.10.0` 发行标签。`0.10.0` 仅是该快照的 Cargo 版本字段；后续按固定 SHA 恢复，不跟随 `master` 更新。
 - 分支名仅说明源码来源，分支后续可能移动，不能代替完整 SHA。子模块恢复后处于 detached HEAD 属于正常状态。
 - 当前仅纳入源码子模块，Agent 与 ZeroMQ 业务尚未接入；锁定源码不代表已完成编译、运行或跨平台兼容性验证，也不替代后续运行环境与传递依赖的锁定。
 

@@ -142,6 +142,8 @@ depoly/tools/slint/bin/slint-viewer --screenshot depoly/target/ui-preview/run-li
 
 [src/depends/](src/depends/README.md) 用于管理第三方依赖来源与受控材料，目前已记录 Slint 宿主依赖及许可，并纳入 Codex CLI、Rust ZeroMQ 源码子模块。两者与当前软件版本绑定的版本号、来源分支、完整提交 SHA 及恢复命令统一记录在[源码依赖基线](src/depends/README.md#当前版本绑定的源码依赖)，不随上游分支自动更新；Cargo 依赖仍由 `Cargo.toml`、`Cargo.lock` 声明与锁定。`depoly/` 集中放置打包内容、开发辅助工具、集成测试和编译缓存，不是独立后端程序。
 
+Rust ZeroMQ 已确认锁定 `master` 分支上的提交 `5d78967001ab`，不切换到 `v0.10.0` 发行标签，也不跟随分支更新；完整 SHA 及复现方式见上述源码依赖基线。
+
 ## 首版范围
 
 - **视觉任务**：仅实例分割，其他视觉任务后续扩展。
