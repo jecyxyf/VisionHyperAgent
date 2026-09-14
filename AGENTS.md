@@ -17,10 +17,21 @@ VisionHyperAgent 是 Agent 驱动的视觉模型标注与自动训练桌面软�
 
 ## Build, Test, and Development Commands
 
-- `uv sync`：创建环境并安装依赖（CUDA 版 torch 索引待定，暂未锁定）
-- `uv run python -m vision_hyper_agent.main`：运行入口
-- `uv run pytest`：运行测试
-- `uv run ruff check .` / `uv run ruff format .`：检查/格式化
+项目只使用仓库内 `.venv`，严禁污染 conda base。
+
+```bash
+uv venv .venv
+uv pip install --python .venv/bin/python PySide6 pytest pytest-qt ruff
+uv pip install --python .venv/bin/python --no-deps -e .
+.venv/bin/vision-hyper-agent
+.venv/bin/pytest
+.venv/bin/ruff check .
+.venv/bin/ruff format .
+.venv/bin/python -m compileall -q src
+.venv/bin/pyside6-qmllint src/vision_hyper_agent/view/MainWindow.qml src/vision_hyper_agent/view/components/*.qml src/vision_hyper_agent/view/pages/*.qml src/vision_hyper_agent/view/ui_items/*.qml
+```
+
+`uv sync` 与不带 `--no-deps` 的 editable 安装会解析并下载 torch，当前都禁止。
 
 ## Coding Style & Naming Conventions
 
