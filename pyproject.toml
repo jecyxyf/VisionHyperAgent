@@ -9,6 +9,9 @@ dependencies = [
     "ultralytics>=8.3",
 ]
 
+[project.scripts]
+vision-hyper-agent = "vision_hyper_agent.main:main"
+
 [dependency-groups]
 dev = [
     "pytest>=8.3",
