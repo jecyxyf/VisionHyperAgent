@@ -4,6 +4,7 @@ use serde_json::json;
 use crate::{
     error::Error,
     registry::{PortMode, RegistryStore, ServiceConfig, StoragePaths},
+    service::ServiceRuntime,
 };
 
 #[derive(Debug, Parser)]
@@ -117,18 +118,25 @@ pub fn run(args: Cli) -> Result<(), Error> {
             );
         }
         Command::Service(ServiceCommand::Start { service_name }) => {
-            let _paths = StoragePaths::from_environment()?;
-            let _store = RegistryStore::open(_paths)?;
-            let service = _store.get_service(&service_name)?.ok_or_else(|| {
-                Error::Rpc(crate::error::RpcError::new(
+            let store = RegistryStore::open(StoragePaths::from_environment()?)?;
+            if store.get_service(&service_name)?.is_none() {
+                return Err(Error::Rpc(crate::error::RpcError::new(
                     "service_not_found",
                     "service does not exist",
-                ))
+                )));
+            }
+            let runtime = tokio::runtime::Builder::new_multi_thread()
+                .enable_all()
+                .build()
+                .map_err(Error::Io)?;
+            runtime.block_on(async {
+                let service = ServiceRuntime::start(
+                    std::sync::Arc::new(std::sync::Mutex::new(store)),
+                    &service_name,
+                )
+                .await?;
+                service.run_until_shutdown().await
             })?;
-            let _ = service;
-            return Err(Error::internal(
-                "Zenoh service runtime is not implemented in this increment",
-            ));
         }
         Command::Service(ServiceCommand::List) => {
             let store = RegistryStore::open(StoragePaths::from_environment()?)?;
