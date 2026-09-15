@@ -9520,6 +9520,7 @@ dependencies = [
  "url",
  "uuid",
  "zenoh",
+ "zstd",
 ]
 
 [[package]]

@@ -28,6 +28,7 @@ toml = "0.9"
 url = "2"
 uuid = { version = "1", features = ["v4", "serde"] }
 zenoh = { path = "../depends/zenoh/zenoh" }
+zstd = "0.13"
 
 [dev-dependencies]
 tempfile = "3"
