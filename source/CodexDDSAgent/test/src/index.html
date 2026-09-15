@@ -1,0 +1,409 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>CodexDDSAgent Test UI</title>
+  <style>
+    :root {
+      color-scheme: dark;
+      --bg: #0d1117;
+      --panel: #151d28;
+      --panel-2: #1b2534;
+      --line: #2c3a4d;
+      --text: #e7edf5;
+      --muted: #91a1b5;
+      --accent: #5eb0ff;
+      --good: #57d99a;
+      --warn: #ffca6b;
+      --bad: #ff7185;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0; min-height: 100vh; background: linear-gradient(145deg, #0b1016, #101827 55%, #0d1622);
+      color: var(--text); font: 14px/1.45 system-ui, "Segoe UI", "Noto Sans CJK SC", sans-serif;
+    }
+    header {
+      position: sticky; top: 0; z-index: 5; display: flex; align-items: center; justify-content: space-between;
+      padding: 16px 24px; border-bottom: 1px solid var(--line); background: rgba(13,17,23,.92); backdrop-filter: blur(12px);
+    }
+    header strong { font-size: 20px; letter-spacing: .3px; }
+    header span { color: var(--muted); font-size: 12px; }
+    main { max-width: 1480px; margin: 0 auto; padding: 22px; }
+    .grid { display: grid; grid-template-columns: minmax(310px, 380px) minmax(390px, 1fr); gap: 16px; }
+    section {
+      background: linear-gradient(180deg, rgba(255,255,255,.035), rgba(255,255,255,.008)), var(--panel);
+      border: 1px solid var(--line); border-radius: 14px; padding: 17px; box-shadow: 0 14px 35px rgba(0,0,0,.18);
+    }
+    h2 { margin: 0 0 14px; font-size: 15px; color: #cfe2ff; }
+    h2 small { color: var(--muted); font-weight: 400; margin-left: 7px; }
+    label { display: block; margin: 10px 0 5px; color: var(--muted); font-size: 12px; }
+    input, textarea, select {
+      width: 100%; border: 1px solid var(--line); border-radius: 8px; padding: 9px 10px; color: var(--text);
+      background: #101823; font: inherit;
+    }
+    input:focus, textarea:focus { outline: 2px solid rgba(94,176,255,.35); border-color: var(--accent); }
+    textarea { min-height: 82px; resize: vertical; font-family: ui-monospace, "Cascadia Mono", monospace; font-size: 13px; }
+    .row { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+    .row-3 { display: grid; grid-template-columns: 2fr 1fr 1fr; gap: 10px; }
+    .actions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 14px; }
+    button {
+      border: 1px solid var(--line); border-radius: 8px; padding: 9px 13px; color: var(--text); cursor: pointer;
+      background: linear-gradient(180deg, #263346, #1d2837); transition: .15s;
+    }
+    button:hover { border-color: #55708d; transform: translateY(-1px); }
+    button.primary { border-color: #3f7eb5; background: linear-gradient(180deg, #2b77bb, #216097); color: white; }
+    button.good { border-color: #3b8d68; background: linear-gradient(180deg, #268667, #1d6d51); }
+    button.bad { border-color: #a04153; background: linear-gradient(180deg, #a84b5d, #843747); }
+    button:disabled { opacity: .45; cursor: not-allowed; transform: none; }
+    .stack { display: grid; gap: 16px; align-content: start; }
+    pre {
+      margin: 0; min-height: 112px; max-height: 340px; overflow: auto; padding: 11px; border-radius: 8px;
+      background: #0a0e14; border: 1px solid var(--line); color: #c9d7e7; font-size: 12px; line-height: 1.55;
+      white-space: pre-wrap; word-break: break-word;
+    }
+    #message { margin-top: 14px; padding: 10px 12px; border-radius: 8px; display: none; border: 1px solid; }
+    #message.info { display: block; color: #b9dcff; border-color: #38618a; background: rgba(42,91,138,.18); }
+    #message.error { display: block; color: #ffc2ca; border-color: #914253; background: rgba(150,55,72,.18); }
+    .cards { display: grid; grid-template-columns: repeat(3, minmax(150px, 1fr)); gap: 9px; }
+    .card { border: 1px solid var(--line); border-radius: 10px; padding: 10px; background: var(--panel-2); }
+    .card b { display: block; color: var(--accent); font-size: 18px; margin-top: 3px; }
+    .card span { color: var(--muted); font-size: 11px; }
+    .reverse { border: 1px solid var(--line); border-radius: 10px; padding: 10px; margin-bottom: 9px; background: var(--panel-2); }
+    .reverse-head { display: flex; justify-content: space-between; align-items: center; gap: 8px; }
+    .reverse-head strong { color: var(--warn); }
+    .tag { padding: 2px 7px; border-radius: 999px; font-size: 11px; background: #253247; color: var(--muted); }
+    .list { display: grid; gap: 7px; max-height: 260px; overflow: auto; }
+    .log { border-left: 3px solid var(--accent); padding: 7px 10px; background: #0a0e14; border-radius: 5px; }
+    .log.reverse { border-color: var(--warn); }
+    .log.status { border-color: var(--good); }
+    .log code { color: #a8c7e8; font-size: 12px; }
+    footer { color: var(--muted); text-align: center; padding: 10px 20px 22px; font-size: 12px; }
+    @media (max-width: 1000px) { .grid { grid-template-columns: 1fr; } }
+  </style>
+</head>
+<body>
+<header>
+  <div><strong>CodexDDSAgent Test UI</strong><span>Rust + Zenoh bridge</span></div>
+  <div id="connectionState" class="tag">disconnected</div>
+</header>
+
+<main class="grid">
+  <div class="stack">
+    <section>
+      <h2>本地测试服务 <small>Mock Codex</small></h2>
+      <div class="row">
+        <div><label>Service 名称</label><input id="localService"></div>
+        <div><label>初始 Agent 名称</label><input id="initialAgent" value="initial-agent"></div>
+      </div>
+      <label>固定端口 / 留空自动</label><input id="fixedPort" placeholder="17600">
+      <div class="actions">
+        <button class="primary" onclick="startLocalService()">启动本地服务</button>
+        <button onclick="listLocalServices()">本地服务列表</button>
+        <button class="bad" onclick="shutdownLocalService()">关闭本地服务</button>
+      </div>
+    </section>
+
+    <section>
+      <h2>连接与实例</h2>
+      <label>Zenoh Endpoint</label><input id="endpoint" placeholder="127.0.0.1:17600">
+      <div class="row">
+        <div><label>Service</label><input id="serviceName"></div>
+        <div><label>Agent</label><input id="agentName"></div>
+      </div>
+      <div class="actions">
+        <button onclick="discover()">发现服务</button>
+        <button onclick="openSession()">连接 Endpoint</button>
+      </div>
+      <div id="discovered"></div>
+      <div class="actions">
+        <button class="good" onclick="createAgent()">Create Agent</button>
+        <button onclick="attachAgent()">Attach</button>
+        <button onclick="agentStatus()">状态</button>
+        <button class="bad" onclick="detachAgent()">Detach</button>
+      </div>
+      <label><input type="checkbox" id="attachWithModel" style="width:auto;margin-right:7px">Attach 时首次写入模型配置</label>
+    </section>
+
+    <section>
+      <h2>模型初始化 <small>仅 Create / 首次 Attach</small></h2>
+      <div class="row">
+        <div><label>Provider ID</label><input id="providerId" value="main"></div>
+        <div><label>Default Provider</label><input id="defaultProvider" value="main"></div>
+      </div>
+      <label>Base URL</label><input id="baseUrl" value="https://api.example.com/v1">
+      <label>API Key</label><input id="apiKey" value="test-key">
+      <div class="row">
+        <div><label>Default Model</label><input id="defaultModel" value="model-a"></div>
+        <div><label>Models（逗号分隔）</label><input id="models" value="model-a,model-b"></div>
+      </div>
+    </section>
+  </div>
+
+  <div class="stack">
+    <section>
+      <h2>运行状态</h2>
+      <div class="cards">
+        <div class="card"><span>Agent State</span><b id="agentState">-</b></div>
+        <div class="card"><span>WebSocket</span><b id="websocketState">-</b></div>
+        <div class="card"><span>Heartbeat</span><b id="heartbeatState">-</b></div>
+      </div>
+      <div style="height:12px"></div>
+      <pre id="statusOutput">尚未查询状态。</pre>
+      <div id="message"></div>
+    </section>
+
+    <section>
+      <h2>Codex RPC</h2>
+      <div class="row-3">
+        <div><label>Method</label><input id="rpcMethod" value="account/usage/read"></div>
+        <div style="align-self:end"><button class="primary" style="width:100%" onclick="sendRpc()">发送 RPC</button></div>
+        <div style="align-self:end"><button style="width:100%" onclick="clearLogs()">清空日志</button></div>
+      </div>
+      <label>Params JSON</label><textarea id="rpcParams">{}</textarea>
+      <pre id="rpcOutput">等待 RPC。</pre>
+    </section>
+
+    <section>
+      <h2>反向请求</h2>
+      <div id="reverseList"><pre>暂无反向请求。</pre></div>
+    </section>
+
+    <section>
+      <h2>事件与状态流</h2>
+      <div id="eventList" class="list"><div class="log"><code>暂无事件。</code></div></div>
+    </section>
+  </div>
+</main>
+<footer>多开方式：再开一个浏览器页签，保持同一个 Endpoint，修改 Agent 名称后 Create / Attach。</footer>
+
+<script>
+let attached = false;
+let polling = false;
+
+const $ = id => document.getElementById(id);
+const randomName = prefix => prefix + '-' + Math.random().toString(36).slice(2, 8);
+
+function initDefaults() {
+  const service = 'test-service-' + Math.random().toString(36).slice(2, 6);
+  $('localService').value = service;
+  $('serviceName').value = service;
+  $('agentName').value = sessionStorage.getItem('testui-agent') || randomName('desktop');
+}
+
+function currentAgent() {
+  sessionStorage.setItem('testui-agent', $('agentName').value.trim());
+  return {
+    endpoint: $('endpoint').value.trim(),
+    service_name: $('serviceName').value.trim(),
+    agent_name: $('agentName').value.trim()
+  };
+}
+
+function modelPayload() {
+  const id = $('providerId').value.trim();
+  return {
+    default_provider: $('defaultProvider').value.trim(),
+    providers: [{
+      id,
+      base_url: $('baseUrl').value.trim(),
+      api_key: $('apiKey').value,
+      default_model: $('defaultModel').value.trim(),
+      models: $('models').value.split(',').map(x => x.trim()).filter(Boolean)
+    }]
+  };
+}
+
+async function api(path, body = {}) {
+  const response = await fetch(path, {
+    method: 'POST',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify(body)
+  });
+  const data = await response.json();
+  if (!response.ok || data.ok === false) throw new Error(data.error?.message || response.statusText);
+  return data;
+}
+
+function showMessage(error) {
+  const node = $('message');
+  node.className = error ? 'error' : 'info';
+  node.textContent = error || '';
+}
+
+function setConnection(state) {
+  $('connectionState').textContent = state;
+}
+
+async function startLocalService() {
+  try {
+    showMessage('');
+    const data = await api('/api/service/start', {
+      service_name: $('localService').value.trim(),
+      agent_name: $('initialAgent').value.trim(),
+      fixed_port: Number($('fixedPort').value) || null
+    });
+    $('endpoint').value = data.endpoint;
+    $('serviceName').value = data.service_name;
+    setConnection('connected: ' + data.endpoint);
+    showMessage('本地服务已启动：' + data.endpoint);
+  } catch (error) { showMessage(error.message); }
+}
+
+async function listLocalServices() {
+  try {
+    const data = await api('/api/service/list', {});
+    showMessage(JSON.stringify(data, null, 2));
+  } catch (error) { showMessage(error.message); }
+}
+
+async function shutdownLocalService() {
+  try {
+    attached = false;
+    await api('/api/service/shutdown', {service_name: $('serviceName').value.trim()});
+    setConnection('disconnected');
+    showMessage('本地服务已关闭。');
+  } catch (error) { showMessage(error.message); }
+}
+
+async function openSession() {
+  try {
+    const data = await api('/api/session/open', {endpoint: $('endpoint').value.trim()});
+    setConnection('connected: ' + data.endpoint);
+    showMessage('Zenoh endpoint 已连接。');
+  } catch (error) { setConnection('error'); showMessage(error.message); }
+}
+
+async function discover() {
+  try {
+    const data = await api('/api/discover', {});
+    const services = data.services || [];
+    $('discovered').innerHTML = services.length ? services.map(service => `
+      <div class="reverse">
+        <div class="reverse-head"><strong>${service.service_name}</strong><span class="tag">${service.state || 'running'}</span></div>
+        <code>${service.host}:${service.port}</code>
+        <div class="actions"><button onclick="useService('${service.service_name}', '${service.host}:${service.port}')">使用</button></div>
+      </div>`.join('') : '<pre>未发现在线服务。</pre>';
+  } catch (error) { showMessage(error.message); }
+}
+
+function useService(name, endpoint) {
+  $('serviceName').value = name;
+  $('endpoint').value = endpoint;
+  openSession();
+}
+
+async function createAgent() {
+  try {
+    const body = {...currentAgent(), model: modelPayload()};
+    const data = await api('/api/agent/create', body);
+    if (data.ok === false) throw new Error(data.error?.message || 'create failed');
+    attached = true;
+    setConnection('agent running');
+    showMessage('Agent 已创建并运行。');
+    startPolling();
+  } catch (error) { showMessage(error.message); }
+}
+
+async function attachAgent() {
+  try {
+    const body = {...currentAgent()};
+    if ($('attachWithModel').checked) body.model = modelPayload();
+    const data = await api('/api/agent/attach', body);
+    if (data.ok === false) throw new Error(data.error?.message || 'attach failed');
+    attached = true;
+    setConnection('agent running');
+    showMessage('Agent 已绑定。');
+    startPolling();
+  } catch (error) { showMessage(error.message); }
+}
+
+async function detachAgent() {
+  try {
+    attached = false;
+    const data = await api('/api/agent/detach', currentAgent());
+    if (data.ok === false) throw new Error(data.error?.message || 'detach failed');
+    setConnection('connected');
+    showMessage('Agent 已释放，登记保留。');
+  } catch (error) { showMessage(error.message); }
+}
+
+async function agentStatus() {
+  try {
+    const data = await api('/api/agent/status', currentAgent());
+    if (data.ok === false) throw new Error(data.error?.message || 'status failed');
+    $('statusOutput').textContent = JSON.stringify(data, null, 2);
+    $('agentState').textContent = data.state || '-';
+    $('websocketState').textContent = data.websocket_state || '-';
+    $('heartbeatState').textContent = data.heartbeat_active ? 'active' : 'inactive';
+  } catch (error) { showMessage(error.message); }
+}
+
+async function sendRpc() {
+  try {
+    let params;
+    try { params = JSON.parse($('rpcParams').value || '{}'); }
+    catch { throw new Error('Params 不是合法 JSON'); }
+    const data = await api('/api/rpc', {...currentAgent(), method: $('rpcMethod').value.trim(), params});
+    $('rpcOutput').textContent = JSON.stringify(data, null, 2);
+  } catch (error) { $('rpcOutput').textContent = error.message; showMessage(error.message); }
+}
+
+async function sendReverseResponse(reverseId, accept) {
+  try {
+    const body = {
+      ...currentAgent(),
+      reverse_id: reverseId,
+      result: accept ? {approved: true, value: 'test-ui'} : null,
+      error: accept ? null : {code: 'rejected', message: 'rejected by test UI'}
+    };
+    const data = await api('/api/reverse/response', body);
+    if (data.ok === false) throw new Error(data.error?.message || 'reverse response failed');
+    showMessage('反向请求已回写。');
+  } catch (error) { showMessage(error.message); }
+}
+
+async function clearLogs() {
+  try { await api('/api/logs/clear', currentAgent()); } catch (error) { showMessage(error.message); }
+}
+
+function startPolling() {
+  if (polling) return;
+  polling = true;
+  setInterval(async () => {
+    if (!attached) return;
+    try { await api('/api/agent/heartbeat', currentAgent()); setConnection('agent running'); }
+    catch { setConnection('agent lost'); }
+  }, 1000);
+  setInterval(async () => {
+    if (!attached) return;
+    try {
+      const data = await api('/api/logs', currentAgent());
+      renderLogs(data.records || [], data.reverse || []);
+    } catch {}
+  }, 700);
+}
+
+function renderLogs(records, reverse) {
+  $('eventList').innerHTML = records.length ? records.map(item => `
+    <div class="log ${item.kind || ''}"><code>${item.kind || 'event'} · ${item.method || item.state || ''}<br>${JSON.stringify(item, null, 2)}</code></div>`.join('') : '<div class="log"><code>暂无事件。</code></div>';
+  $('reverseList').innerHTML = reverse.length ? reverse.map(item => `
+    <div class="reverse">
+      <div class="reverse-head"><strong>${item.method || 'reverse'}</strong><span class="tag">${item.answered ? 'answered' : 'waiting'}</span></div>
+      <pre>${JSON.stringify(item, null, 2)}</pre>
+      <div class="actions">
+        <button class="good" ${item.answered ? 'disabled' : ''} onclick="sendReverseResponse('${item.reverse_id}', true)">允许</button>
+        <button class="bad" ${item.answered ? 'disabled' : ''} onclick="sendReverseResponse('${item.reverse_id}', false)">拒绝</button>
+      </div>
+    </div>`.join('') : '<pre>暂无反向请求。</pre>';
+}
+
+window.addEventListener('beforeunload', () => {
+  if (!attached) return;
+  navigator.sendBeacon('/api/agent/detach', new Blob([JSON.stringify(currentAgent())], {type: 'application/json'}));
+});
+
+initDefaults();
+</script>
+</body>
+</html>

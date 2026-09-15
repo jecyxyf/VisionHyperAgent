@@ -482,11 +482,14 @@ pub async fn stop_all_agents(
         manager.take_all_agents()
     };
     let store_handle = registry_store(manager)?;
-    let store = lock_store(&store_handle)?;
     for (agent_name, managed) in agents {
-        managed.runtime.stop().await?;
-        store.mark_agent_stopped(service_name, &agent_name, AgentRegistryState::Stopped)?;
-        publish_agent_state(session, service_name, &agent_name, "stopped").await?;
+        let stop_result = managed.runtime.stop().await;
+        if let Ok(store) = lock_store(&store_handle) {
+            let _ =
+                store.mark_agent_stopped(service_name, &agent_name, AgentRegistryState::Stopped);
+        }
+        publish_agent_state(session, service_name, &agent_name, "stopped").await;
+        stop_result?;
     }
     Ok(())
 }

@@ -992,6 +992,15 @@ dependencies = [
 [[package]]
 name = "codex-dds-testui"
 version = "0.1.0"
+dependencies = [
+ "futures-util",
+ "serde",
+ "serde_json",
+ "tokio",
+ "uuid",
+ "vha-codex-dds-agent",
+ "zenoh",
+]
 
 [[package]]
 name = "codex-execpolicy"
