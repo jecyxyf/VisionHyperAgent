@@ -310,8 +310,23 @@ async fn declare_agent_queryables(
                     reply_error_for_invalid_key(&query).await;
                     continue;
                 };
-                handle_agent_query(&session, &agents, &service_name, &agent_name, kind, query)
-                    .await;
+                tokio::spawn({
+                    let session = session.clone();
+                    let agents = agents.clone();
+                    let service_name = service_name.clone();
+                    let agent_name = agent_name.clone();
+                    async move {
+                        handle_agent_query(
+                            &session,
+                            &agents,
+                            &service_name,
+                            &agent_name,
+                            kind,
+                            query,
+                        )
+                        .await;
+                    }
+                });
             }
         });
     }

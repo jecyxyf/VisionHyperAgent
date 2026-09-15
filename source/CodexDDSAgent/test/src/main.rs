@@ -752,7 +752,7 @@ fn install_mock_binary(paths: &StoragePaths) -> Result<(), ApiError> {
     paths.prepare().map_err(|error| error.to_string())?;
     let executable = std::env::current_exe().map_err(|error| error.to_string())?;
     let executable = shell_quote(&executable.to_string_lossy());
-    let script = format!("#!/bin/sh\nexec {executable} --mock-codex-server \"$\"\"\n");
+    let script = format!("#!/bin/sh\nexec {executable} --mock-codex-server \"$@\"\n");
     std::fs::write(&paths.agent_binary, script).map_err(|error| error.to_string())?;
     #[cfg(unix)]
     {

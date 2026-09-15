@@ -14,7 +14,7 @@ use crate::{
     model_config::ModelConfig,
     protocol::RpcRequest,
     registry::{AgentRegistryState, RegistryStore},
-    runtime::{AgentRuntime, RuntimeCommand, RuntimeEvent},
+    runtime::{AgentRuntime, RuntimeCommand, RuntimeEvent, RuntimeSnapshot},
     service::PROTOCOL_VERSION,
 };
 
@@ -37,6 +37,7 @@ pub struct AgentManager {
     agents: HashMap<String, ManagedAgent>,
 }
 
+#[derive(Clone)]
 struct ManagedAgent {
     runtime: AgentRuntime,
     last_heartbeat: Instant,
@@ -115,7 +116,7 @@ pub async fn handle_agent_query(
         AgentQueryKind::Heartbeat => heartbeat(manager, agent_name).map(|_| heartbeat_response()),
         AgentQueryKind::Rpc => rpc(manager, agent_name, &query).await,
         AgentQueryKind::ReverseResponse => reverse_response(manager, agent_name, &query).await,
-        AgentQueryKind::StatusGet => agent_status(manager, service_name, agent_name),
+        AgentQueryKind::StatusGet => agent_status(manager, service_name, agent_name).await,
     };
 
     match result {
@@ -396,20 +397,43 @@ async fn reverse_response(
     Ok(json!({"version": PROTOCOL_VERSION, "ok": true}))
 }
 
-fn agent_status(
+async fn agent_status(
     manager: &Arc<Mutex<AgentManager>>,
     service_name: &str,
     agent_name: &str,
 ) -> Result<Value, Error> {
-    let agents = lock_manager(manager)?;
-    let active = agents.agents.get(agent_name);
+    let (active, runtime) = {
+        let agents = lock_manager(manager)?;
+        let active = agents.is_active(agent_name);
+        (active, agents.agents.get(agent_name).cloned())
+    };
     let store_handle = registry_store(manager)?;
-    let store = lock_store(&store_handle)?;
-    let agent = store
-        .get_agent(service_name, agent_name)?
-        .ok_or_else(agent_not_found)?;
-    let state = if active.is_some() {
-        "running"
+    let agent = {
+        let store = lock_store(&store_handle)?;
+        store
+            .get_agent(service_name, agent_name)?
+            .ok_or_else(agent_not_found)?
+            .clone()
+    };
+    let snapshot = if active {
+        runtime
+            .as_ref()
+            .ok_or_else(agent_stopped)?
+            .runtime
+            .snapshot()
+            .await?
+    } else {
+        RuntimeSnapshot {
+            state: "stopped",
+            websocket_state: "disconnected",
+            codex_process_state: "stopped",
+            processing_request: false,
+            failure_count: 0,
+            error: None,
+        }
+    };
+    let state = if active {
+        snapshot.state
     } else {
         agent_registry_state_name(agent.state)
     };
@@ -418,13 +442,13 @@ fn agent_status(
         "service_name": service_name,
         "agent_name": agent_name,
         "state": state,
-        "websocket_state": if active.is_some() { "connected" } else { "disconnected" },
-        "codex_process_state": if active.is_some() { "running" } else { "stopped" },
-        "heartbeat_active": active.is_some(),
+        "websocket_state": if active { snapshot.websocket_state } else { "disconnected" },
+        "codex_process_state": if active { snapshot.codex_process_state } else { "stopped" },
+        "heartbeat_active": active,
         "model_config_initialized": agent.model_config_initialized,
-        "processing_request": false,
-        "failure_count": 0,
-        "error": Value::Null,
+        "processing_request": snapshot.processing_request,
+        "failure_count": snapshot.failure_count,
+        "error": snapshot.error,
         "changed_at": chrono::Utc::now().to_rfc3339(),
     }))
 }

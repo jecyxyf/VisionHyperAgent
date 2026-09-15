@@ -38,6 +38,9 @@ pub enum RuntimeCommand {
         error: Option<Value>,
         reply: oneshot::Sender<Result<(), RpcError>>,
     },
+    Status {
+        reply: oneshot::Sender<RuntimeSnapshot>,
+    },
     Stop,
 }
 
@@ -64,6 +67,16 @@ pub enum RuntimeEvent {
     },
 }
 
+#[derive(Debug, Clone)]
+pub struct RuntimeSnapshot {
+    pub state: &'static str,
+    pub websocket_state: &'static str,
+    pub codex_process_state: &'static str,
+    pub processing_request: bool,
+    pub failure_count: usize,
+    pub error: Option<String>,
+}
+
 struct PendingRpc {
     request_id: String,
     method: String,
@@ -79,6 +92,7 @@ struct PendingReverse {
     deadline: Instant,
 }
 
+#[derive(Clone)]
 pub struct AgentRuntime {
     command_tx: mpsc::Sender<RuntimeCommand>,
     log_path: PathBuf,
@@ -149,6 +163,15 @@ impl AgentRuntime {
         self.command_tx.clone()
     }
 
+    pub async fn snapshot(&self) -> Result<RuntimeSnapshot, Error> {
+        let (reply_tx, reply_rx) = oneshot::channel();
+        self.command_tx
+            .send(RuntimeCommand::Status { reply: reply_tx })
+            .await
+            .map_err(|_| agent_stopped())?;
+        reply_rx.await.map_err(|_| Error::Rpc(agent_stopped()))
+    }
+
     pub fn log_path(&self) -> &Path {
         &self.log_path
     }
@@ -212,6 +235,17 @@ async fn runtime_worker(
                         ).await;
                         let _ = reply.send(outcome);
                     }
+                    RuntimeCommand::Status { reply } => {
+                        let snapshot = RuntimeSnapshot {
+                            state: if fatal_error.is_some() { "error" } else { "running" },
+                            websocket_state: websocket_state(&websocket),
+                            codex_process_state: process_state(&process),
+                            processing_request: active_rpc.is_some(),
+                            failure_count,
+                            error: fatal_error.clone(),
+                        };
+                        let _ = reply.send(snapshot);
+                    }
                 }
             }
             message = async {
@@ -227,6 +261,9 @@ async fn runtime_worker(
                     .and_then(|message| parse_text_message(message).ok());
                 let Some(value) = received else {
                     websocket = None;
+                    if let Some(active) = active_rpc.take() {
+                        rpc_queue.push_front(active);
+                    }
                     process = stop_process(process).await;
                     if restart.is_some() {
                         next_recovery = Some(Instant::now() + RECOVERY_DELAY);
@@ -635,6 +672,10 @@ fn process_state(process: &Option<ManagedProcess>) -> &'static str {
     } else {
         "stopped"
     }
+}
+
+fn agent_stopped() -> RpcError {
+    RpcError::new("agent_stopped", "agent runtime is stopped")
 }
 
 async fn publish_state(
