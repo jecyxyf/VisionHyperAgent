@@ -24,6 +24,6 @@ Item {
         property real panelRadius: root.panelRadius
         property real effectWidth: root.width
         property real effectHeight: root.height
-        fragmentShader: "GradientShadow.frag"
+        fragmentShader: "GradientShadow.qsb"
     }
 }

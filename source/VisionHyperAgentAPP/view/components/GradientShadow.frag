@@ -1,17 +1,19 @@
-#version 440 core
+#version 440
 
-in vec2 qt_TexCoord0;
-out vec4 fragColor;
+layout(location = 0) in vec2 qt_TexCoord0;
+layout(location = 0) out vec4 fragColor;
 
-uniform float qt_Opacity;
-uniform vec4 shadowColor;
-uniform float blurRadius;
-uniform float offsetY;
-uniform float panelWidth;
-uniform float panelHeight;
-uniform float panelRadius;
-uniform float effectWidth;
-uniform float effectHeight;
+layout(std140, binding = 0) uniform buf {
+    float qt_Opacity;
+    vec4 shadowColor;
+    float blurRadius;
+    float offsetY;
+    float panelWidth;
+    float panelHeight;
+    float panelRadius;
+    float effectWidth;
+    float effectHeight;
+};
 
 float roundedBoxDistance(vec2 point, vec2 halfSize, float radius)
 {
