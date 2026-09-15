@@ -346,6 +346,63 @@ async fn heartbeat_timeout_stops_runtime_but_keeps_registration_and_config() {
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn fatal_recovery_failure_marks_agent_error_and_releases_runtime() {
+    let fixture = ServiceFixture::new("service-agents-fatal-recovery", &["--crash-always"]).await;
+    let client = open_client(fixture.port).await;
+
+    let created = query_json(
+        client.clone(),
+        "codex-dds/v1/service-agents-fatal-recovery/agent/desktop-a/create",
+        model_payload(),
+    )
+    .await;
+    assert_eq!(created["state"], "running", "create response: {created}");
+
+    let deadline = Instant::now() + Duration::from_secs(5);
+    let status = loop {
+        let _ = query_json(
+            client.clone(),
+            "codex-dds/v1/service-agents-fatal-recovery/agent/desktop-a/heartbeat",
+            json!({"version": 1}),
+        )
+        .await;
+        let status = query_json(
+            client.clone(),
+            "codex-dds/v1/service-agents-fatal-recovery/desktop-a/status/get",
+            json!({"version": 1}),
+        )
+        .await;
+        if status["state"] == "error" || Instant::now() > deadline {
+            break status;
+        }
+        tokio::time::sleep(Duration::from_millis(100)).await;
+    };
+    assert_eq!(status["state"], "error", "timeout status: {status}");
+    assert_eq!(status["heartbeat_active"], false);
+    assert_eq!(status["codex_process_state"], "stopped");
+
+    let rpc = query_json(
+        client.clone(),
+        "codex-dds/v1/service-agents-fatal-recovery/desktop-a/rpc",
+        rpc_payload("after-fatal", "account/usage/read"),
+    )
+    .await;
+    assert_eq!(rpc["error"]["code"], "agent_stopped");
+
+    client.close().await.unwrap();
+    fixture.service.shutdown().await.unwrap();
+
+    let paths = StoragePaths::new(fixture.root.path());
+    let store = RegistryStore::open(paths.clone()).unwrap();
+    let agent = store
+        .get_agent("service-agents-fatal-recovery", "desktop-a")
+        .unwrap()
+        .unwrap();
+    assert_eq!(agent.state, AgentRegistryState::Error);
+    assert!(paths.codex_home("desktop-a").join("config.toml").is_file());
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn notifications_and_reverse_requests_are_forwarded_per_agent() {
     let fixture = ServiceFixture::new(
         "service-agents-events",

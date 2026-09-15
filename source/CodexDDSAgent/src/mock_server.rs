@@ -29,6 +29,11 @@ pub async fn run() -> Result<(), Box<dyn std::error::Error>> {
         return Err("expected initialized notification".into());
     }
 
+    if flag("--crash-always") {
+        tokio::time::sleep(Duration::from_millis(50)).await;
+        exit(2);
+    }
+
     if should_crash_once() {
         tokio::time::sleep(Duration::from_millis(100)).await;
         exit(2);

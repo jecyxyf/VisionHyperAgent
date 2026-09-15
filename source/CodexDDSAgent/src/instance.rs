@@ -74,6 +74,19 @@ impl AgentManager {
         self.agents.drain().collect()
     }
 
+    fn remove_runtime_if_matches(&mut self, agent_name: &str, runtime_id: &str) -> bool {
+        if self
+            .agents
+            .get(agent_name)
+            .is_some_and(|agent| agent.runtime.id() == runtime_id)
+        {
+            self.agents.remove(agent_name);
+            true
+        } else {
+            false
+        }
+    }
+
     fn command_sender(
         &self,
         agent_name: &str,
@@ -255,12 +268,49 @@ async fn start_runtime(
     let (runtime, mut events) = AgentRuntime::start(&binary, &codex_home, &log_path).await?;
     let store_handle = registry_store(manager)?;
     lock_store(&store_handle)?.mark_agent_running(service_name, agent_name)?;
+    let mut agents = lock_manager(manager)?;
+    agents.agents.insert(
+        agent_name.to_string(),
+        ManagedAgent {
+            runtime: runtime.clone(),
+            last_heartbeat: Instant::now(),
+        },
+    );
+    drop(agents);
+
     let event_session = session.clone();
     let event_service = service_name.to_string();
     let event_agent = agent_name.to_string();
     let event_manager = manager.clone();
     tokio::spawn(async move {
         while let Some(event) = events.recv().await {
+            if let RuntimeEvent::Stopped {
+                runtime_id,
+                error: Some(_),
+                ..
+            } = &event
+            {
+                let removed = event_manager
+                    .lock()
+                    .map(|mut agents| agents.remove_runtime_if_matches(&event_agent, runtime_id))
+                    .unwrap_or(false);
+                if removed {
+                    if let Ok(store_handle) = registry_store(&event_manager) {
+                        if let Ok(store) = lock_store(&store_handle) {
+                            let _ = store.mark_agent_stopped(
+                                &event_service,
+                                &event_agent,
+                                AgentRegistryState::Error,
+                            );
+                        }
+                    }
+                    let _ =
+                        publish_agent_state(&event_session, &event_service, &event_agent, "error")
+                            .await;
+                }
+                continue;
+            }
+
             let (key, payload) = match event {
                 RuntimeEvent::Notification {
                     event_id,
@@ -317,19 +367,12 @@ async fn start_runtime(
                         "changed_at": chrono::Utc::now().to_rfc3339(),
                     }),
                 ),
+                RuntimeEvent::Stopped { .. } => continue,
             };
             let _ = event_session.put(key.as_str(), payload.to_string()).await;
         }
     });
 
-    let mut agents = lock_manager(manager)?;
-    agents.agents.insert(
-        agent_name.to_string(),
-        ManagedAgent {
-            runtime,
-            last_heartbeat: Instant::now(),
-        },
-    );
     Ok(())
 }
 

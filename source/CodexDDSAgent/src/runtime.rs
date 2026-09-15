@@ -22,6 +22,7 @@ use crate::{
 
 const MAX_RECOVERY_FAILURES: usize = 5;
 const RECOVERY_DELAY: Duration = Duration::from_millis(200);
+const RECOVERY_STABLE_AFTER: Duration = Duration::from_millis(500);
 
 #[derive(Debug)]
 pub enum RuntimeCommand {
@@ -66,6 +67,11 @@ pub enum RuntimeEvent {
         failure_count: usize,
         error: Option<String>,
     },
+    Stopped {
+        runtime_id: String,
+        error: Option<String>,
+        failure_count: usize,
+    },
 }
 
 #[derive(Debug, Clone)]
@@ -94,6 +100,7 @@ struct PendingReverse {
 
 #[derive(Clone)]
 pub struct AgentRuntime {
+    id: String,
     command_tx: mpsc::UnboundedSender<RuntimeCommand>,
     log_path: PathBuf,
 }
@@ -112,9 +119,11 @@ impl AgentRuntime {
             codex_home: codex_home.to_path_buf(),
             log_path: log_path.to_path_buf(),
         });
+        let runtime_id = Uuid::new_v4().to_string();
         Self::spawn_worker(
             Some(process),
             Some(websocket),
+            runtime_id,
             binary,
             codex_home,
             log_path,
@@ -129,12 +138,21 @@ impl AgentRuntime {
         let websocket = connect_and_handshake(websocket_url).await?;
         let binary = PathBuf::from("/nonexistent/codex-app-server");
         let codex_home = PathBuf::from("/nonexistent/codex-home");
-        Self::spawn_worker(None, Some(websocket), &binary, &codex_home, log_path, None)
+        Self::spawn_worker(
+            None,
+            Some(websocket),
+            Uuid::new_v4().to_string(),
+            &binary,
+            &codex_home,
+            log_path,
+            None,
+        )
     }
 
     fn spawn_worker(
         process: Option<ManagedProcess>,
         websocket: Option<CodexWebSocket>,
+        runtime_id: String,
         _binary: &Path,
         _codex_home: &Path,
         log_path: &Path,
@@ -143,15 +161,25 @@ impl AgentRuntime {
         let (command_tx, command_rx) = mpsc::unbounded_channel();
         let (event_tx, event_rx) = mpsc::channel(4096);
         tokio::spawn(runtime_worker(
-            process, websocket, command_rx, event_tx, restart,
+            process,
+            websocket,
+            runtime_id.clone(),
+            command_rx,
+            event_tx,
+            restart,
         ));
         Ok((
             Self {
+                id: runtime_id,
                 command_tx,
                 log_path: log_path.to_path_buf(),
             },
             event_rx,
         ))
+    }
+
+    pub fn id(&self) -> &str {
+        &self.id
     }
 
     pub async fn stop(self) -> Result<(), Error> {
@@ -189,6 +217,7 @@ struct RestartPaths {
 async fn runtime_worker(
     mut process: Option<ManagedProcess>,
     mut websocket: Option<CodexWebSocket>,
+    runtime_id: String,
     mut commands: mpsc::UnboundedReceiver<RuntimeCommand>,
     events: mpsc::Sender<RuntimeEvent>,
     restart: Option<RestartPaths>,
@@ -201,6 +230,7 @@ async fn runtime_worker(
     let mut fatal_error: Option<String> = None;
     let mut next_recovery: Option<Instant> = None;
     let mut stop_ack: Option<oneshot::Sender<()>> = None;
+    let mut connected_at = Instant::now();
 
     publish_state(
         &events,
@@ -214,6 +244,13 @@ async fn runtime_worker(
     .await;
 
     loop {
+        if websocket.is_some()
+            && failure_count > 0
+            && connected_at.elapsed() >= RECOVERY_STABLE_AFTER
+        {
+            failure_count = 0;
+        }
+
         tokio::select! {
             biased;
             command = commands.recv() => {
@@ -239,6 +276,7 @@ async fn runtime_worker(
                             &mut process,
                             restart.as_ref(),
                             &mut next_recovery,
+                            &mut failure_count,
                         ).await;
                         let _ = reply.send(outcome);
                     }
@@ -268,6 +306,7 @@ async fn runtime_worker(
                     .and_then(|message| parse_text_message(message).ok());
                 let Some(value) = received else {
                     websocket = None;
+                    failure_count += 1;
                     if let Some(active) = active_rpc.take() {
                         rpc_queue.push_front(active);
                     }
@@ -303,7 +342,7 @@ async fn runtime_worker(
                         Ok((new_process, new_websocket)) => {
                             process = Some(new_process);
                             websocket = Some(new_websocket);
-                            failure_count = 0;
+                            connected_at = Instant::now();
                         }
                         Err(error) => {
                             failure_count += 1;
@@ -325,6 +364,7 @@ async fn runtime_worker(
             &mut process,
             restart.as_ref(),
             &mut next_recovery,
+            &mut failure_count,
         )
         .await;
         dispatch_reverse(
@@ -334,6 +374,10 @@ async fn runtime_worker(
             &mut websocket,
         )
         .await;
+        if failure_count >= MAX_RECOVERY_FAILURES && websocket.is_none() && restart.is_some() {
+            fatal_error = Some("codex-app-server could not be recovered".to_string());
+            break;
+        }
         publish_state(
             &events,
             if fatal_error.is_some() {
@@ -370,6 +414,13 @@ async fn runtime_worker(
         let _ = stream.close(None).await;
     }
     stop_process(process).await;
+    let _ = events
+        .send(RuntimeEvent::Stopped {
+            runtime_id: runtime_id.clone(),
+            error: fatal_error.clone(),
+            failure_count,
+        })
+        .await;
     publish_state(
         &events,
         "stopped",
@@ -467,6 +518,7 @@ async fn dispatch_rpc(
     process: &mut Option<ManagedProcess>,
     restart: Option<&RestartPaths>,
     next_recovery: &mut Option<Instant>,
+    failure_count: &mut usize,
 ) {
     if active_rpc.is_some() || websocket.is_none() {
         return;
@@ -492,6 +544,7 @@ async fn dispatch_rpc(
     } else {
         rpc_queue.push_front(pending);
         *websocket = None;
+        *failure_count += 1;
         *process = stop_process(process.take()).await;
         if restart.is_some() {
             *next_recovery = Some(Instant::now() + RECOVERY_DELAY);
@@ -539,6 +592,7 @@ async fn reverse_response(
     process: &mut Option<ManagedProcess>,
     restart: Option<&RestartPaths>,
     next_recovery: &mut Option<Instant>,
+    failure_count: &mut usize,
 ) -> Result<(), RpcError> {
     let invalid_state = || RpcError::new("invalid_state", "no matching reverse request is active");
     let Some(current) = reverse_current.as_ref() else {
@@ -572,6 +626,7 @@ async fn reverse_response(
     };
     if !sent {
         *websocket = None;
+        *failure_count += 1;
         *process = stop_process(process.take()).await;
         if restart.is_some() {
             *next_recovery = Some(Instant::now() + RECOVERY_DELAY);
