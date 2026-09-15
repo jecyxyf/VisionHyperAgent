@@ -300,6 +300,13 @@ source/
 source/Rust/depends/            固定版本上游子模块
 ~~~
 
+依赖放置规则：
+
+- `source/Rust/depends/` 只保留 Codex、Ultralytics、Zenoh 等需要固定源码或联调的上游项目；
+- `tokio`、WebSocket、JSON 序列化等普通 Rust 库在各模块的 `Cargo.toml` 中声明；
+- 完整版本由 `source/Rust/Cargo.lock` 固定；
+- 不把普通 Rust 库加入 Git 子模块，避免依赖来源混杂和仓库膨胀。
+
 已取消的目录：
 
 ~~~text
