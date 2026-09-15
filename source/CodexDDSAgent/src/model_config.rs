@@ -214,10 +214,7 @@ mod tests {
         let error = changed.initialize_or_lock(root.path()).unwrap_err();
         assert!(matches!(
             error,
-            Error::Rpc(RpcError {
-                code: "model_config_locked",
-                ..
-            })
+            Error::Rpc(RpcError { code, .. }) if code == "model_config_locked"
         ));
     }
 
@@ -229,10 +226,7 @@ mod tests {
         let error = invalid.initialize_or_lock(root.path()).unwrap_err();
         assert!(matches!(
             error,
-            Error::Rpc(RpcError {
-                code: "invalid_model_config",
-                ..
-            })
+            Error::Rpc(RpcError { code, .. }) if code == "invalid_model_config"
         ));
     }
 }

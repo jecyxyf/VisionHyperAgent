@@ -55,6 +55,7 @@ pub async fn run() -> Result<(), Box<dyn std::error::Error>> {
     }
 
     let delay_ms = value("--delay-ms")?.unwrap_or(0);
+    let rpc_error_code = value_string("--rpc-error-code");
     while let Some(message) = websocket.next().await {
         let request = match message? {
             Message::Text(text) => serde_json::from_str::<Value>(&text)?,
@@ -64,17 +65,25 @@ pub async fn run() -> Result<(), Box<dyn std::error::Error>> {
         if delay_ms > 0 {
             tokio::time::sleep(Duration::from_millis(delay_ms)).await;
         }
-        send_json(
-            &mut websocket,
+        let response = if let Some(code) = rpc_error_code.as_deref() {
+            json!({
+                "id": request.get("id").cloned().unwrap_or_else(|| json!(null)),
+                "error": {
+                    "code": code,
+                    "message": "mock Codex error",
+                    "data": {"source": "mock"}
+                }
+            })
+        } else {
             json!({
                 "id": request.get("id").cloned().unwrap_or_else(|| json!(null)),
                 "result": {
                     "method": request.get("method").cloned().unwrap_or(Value::Null),
                     "params": request.get("params").cloned().unwrap_or(Value::Null)
                 }
-            }),
-        )
-        .await?;
+            })
+        };
+        send_json(&mut websocket, response).await?;
     }
     Ok(())
 }
@@ -113,6 +122,16 @@ fn value(name: &str) -> Result<Option<u64>, Box<dyn std::error::Error>> {
         return Ok(Some(raw.parse()?));
     }
     Ok(None)
+}
+
+fn value_string(name: &str) -> Option<String> {
+    let mut arguments = env::args().skip(1);
+    while let Some(argument) = arguments.next() {
+        if argument == name {
+            return arguments.next();
+        }
+    }
+    None
 }
 
 fn should_crash_once() -> bool {

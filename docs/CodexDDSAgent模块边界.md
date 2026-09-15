@@ -321,6 +321,8 @@ create 请求必须携带模型初始化配置：
 
 创建成功后模型配置立即写入该 Agent 的 config.toml 并锁定，后续不允许修改。
 
+create 的模型配置必须先完整校验；校验失败时不写入 Agent 登记和 config.toml，同名 Agent 可以随后用有效配置重新 create。
+
 成功响应：
 
 ~~~json
@@ -553,7 +555,7 @@ service_name 和 agent_name 只放在 key 中，载荷不重复携带。唯一�
   "request_id": "uuid",
   "ok": false,
   "error": {
-    "code": "codex_error",
+    "code": "Codex 原始错误码",
     "message": "error message",
     "data": {}
   }
@@ -581,6 +583,7 @@ service_name 和 agent_name 只放在 key 中，载荷不重复携带。唯一�
 - 不提供通用取消接口。
 - runtime 停止时清空队列，未执行请求返回 agent_stopped。
 - 中断行为走 Codex 原生 turn/interrupt、process 或 command 相关方法。
+- 入队通道本身不设 1024 等固定容量；等待中的请求只受 runtime 停止影响。
 
 ## 16. 服务端通知
 
@@ -621,7 +624,7 @@ CodexDDSAgent 不自建会话数据库，也不复制提示词队列。主程序
 - thread/read；
 - thread/turns/list；
 - thread/items/list；
-- getConversationSummary。
+- thread/timeline/list。
 
 提示词队列直接使用 Codex 原生 thread queue：
 
@@ -671,10 +674,9 @@ codex-app-server 发起 WebSocket request
 1. 同一 Agent 内一次只处理一个反向请求。
 2. 不同 Agent 的反向请求互不影响。
 3. 不自动审批、不自动补输入。
-4. 默认等待 5 分钟。
-5. 超时必须给 Codex 返回失败。
-6. runtime 停止时反向请求立即失败。
-7. reverse_id 不存在或已处理时返回 not_found或 invalid_state。
+4. CodexDDSAgent 不增加反向请求外层超时，等待规则遵循 Codex 内部默认规则。
+5. runtime 停止时反向请求立即失败。
+6. reverse_id 不存在或已处理时返回 not_found或 invalid_state。
 
 ## 19. 状态协议
 
@@ -774,7 +776,6 @@ Agent 状态快照包含：
 | WebSocket 断开 | connection_closed |
 | codex-app-server 启动失败 | process_start_failed |
 | 监听地址解析失败 | server_address_invalid |
-| 反向请求等待超时 | reverse_request_timeout |
 | CodexDDSAgent 内部错误 | internal_error |
 
 错误不吞掉。无法确定错误码时使用 internal_error，并在日志中保留原始上下文。

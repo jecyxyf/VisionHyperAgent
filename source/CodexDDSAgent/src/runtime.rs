@@ -21,7 +21,6 @@ use crate::{
 };
 
 const MAX_RECOVERY_FAILURES: usize = 5;
-const REVERSE_REQUEST_TIMEOUT: Duration = Duration::from_secs(5 * 60);
 const RECOVERY_DELAY: Duration = Duration::from_millis(200);
 
 #[derive(Debug)]
@@ -41,7 +40,9 @@ pub enum RuntimeCommand {
     Status {
         reply: oneshot::Sender<RuntimeSnapshot>,
     },
-    Stop,
+    Stop {
+        reply: oneshot::Sender<()>,
+    },
 }
 
 #[derive(Debug, Clone)]
@@ -89,12 +90,11 @@ struct PendingReverse {
     original_id: Value,
     method: String,
     params: Value,
-    deadline: Instant,
 }
 
 #[derive(Clone)]
 pub struct AgentRuntime {
-    command_tx: mpsc::Sender<RuntimeCommand>,
+    command_tx: mpsc::UnboundedSender<RuntimeCommand>,
     log_path: PathBuf,
 }
 
@@ -135,12 +135,12 @@ impl AgentRuntime {
     fn spawn_worker(
         process: Option<ManagedProcess>,
         websocket: Option<CodexWebSocket>,
-        binary: &Path,
-        codex_home: &Path,
+        _binary: &Path,
+        _codex_home: &Path,
         log_path: &Path,
         restart: Option<RestartPaths>,
     ) -> Result<(Self, mpsc::Receiver<RuntimeEvent>), Error> {
-        let (command_tx, command_rx) = mpsc::channel(1024);
+        let (command_tx, command_rx) = mpsc::unbounded_channel();
         let (event_tx, event_rx) = mpsc::channel(4096);
         tokio::spawn(runtime_worker(
             process, websocket, command_rx, event_tx, restart,
@@ -155,11 +155,15 @@ impl AgentRuntime {
     }
 
     pub async fn stop(self) -> Result<(), Error> {
-        let _ = self.command_tx.send(RuntimeCommand::Stop).await;
+        let (reply_tx, reply_rx) = oneshot::channel();
+        let _ = self
+            .command_tx
+            .send(RuntimeCommand::Stop { reply: reply_tx });
+        let _ = reply_rx.await;
         Ok(())
     }
 
-    pub fn command_sender(&self) -> mpsc::Sender<RuntimeCommand> {
+    pub fn command_sender(&self) -> mpsc::UnboundedSender<RuntimeCommand> {
         self.command_tx.clone()
     }
 
@@ -167,7 +171,6 @@ impl AgentRuntime {
         let (reply_tx, reply_rx) = oneshot::channel();
         self.command_tx
             .send(RuntimeCommand::Status { reply: reply_tx })
-            .await
             .map_err(|_| agent_stopped())?;
         reply_rx.await.map_err(|_| Error::Rpc(agent_stopped()))
     }
@@ -186,7 +189,7 @@ struct RestartPaths {
 async fn runtime_worker(
     mut process: Option<ManagedProcess>,
     mut websocket: Option<CodexWebSocket>,
-    mut commands: mpsc::Receiver<RuntimeCommand>,
+    mut commands: mpsc::UnboundedReceiver<RuntimeCommand>,
     events: mpsc::Sender<RuntimeEvent>,
     restart: Option<RestartPaths>,
 ) {
@@ -197,6 +200,7 @@ async fn runtime_worker(
     let mut failure_count = 0usize;
     let mut fatal_error: Option<String> = None;
     let mut next_recovery: Option<Instant> = None;
+    let mut stop_ack: Option<oneshot::Sender<()>> = None;
 
     publish_state(
         &events,
@@ -210,15 +214,15 @@ async fn runtime_worker(
     .await;
 
     loop {
-        let reverse_deadline = reverse_current.as_ref().map(|item| item.deadline);
         tokio::select! {
             biased;
             command = commands.recv() => {
                 let Some(command) = command else { break };
                 match command {
-                    RuntimeCommand::Stop => {
+                    RuntimeCommand::Stop { reply } => {
                         fail_pending_rpcs(&mut active_rpc, &mut rpc_queue, "agent_stopped", "agent runtime stopped");
                         fail_reverse(&mut reverse_current, &mut reverse_queue, "agent_stopped", "agent runtime stopped", &mut websocket).await;
+                        stop_ack = Some(reply);
                         break;
                     }
                     RuntimeCommand::Rpc { request_id, method, params, reply } => {
@@ -280,25 +284,9 @@ async fn runtime_worker(
                     &mut websocket,
                     &mut active_rpc,
                     &mut rpc_queue,
-                    &mut reverse_current,
                     &mut reverse_queue,
                 )
                 .await;
-            }
-            _ = async {
-                match reverse_deadline {
-                    Some(deadline) => sleep_until(deadline).await,
-                    None => std::future::pending().await,
-                }
-            }, if reverse_current.is_some() => {
-                if let Some(expired) = reverse_current.take() {
-                    send_reverse_error(
-                        expired.original_id,
-                        "reverse_request_timeout",
-                        "reverse request timed out",
-                        &mut websocket,
-                    ).await;
-                }
             }
             _ = async {
                 match next_recovery {
@@ -370,7 +358,7 @@ async fn runtime_worker(
     if let Some(mut stream) = websocket.take() {
         let _ = stream.close(None).await;
     }
-    process = stop_process(process).await;
+    stop_process(process).await;
     publish_state(
         &events,
         "stopped",
@@ -381,6 +369,9 @@ async fn runtime_worker(
         fatal_error,
     )
     .await;
+    if let Some(reply) = stop_ack {
+        let _ = reply.send(());
+    }
 }
 
 async fn handle_server_message(
@@ -389,7 +380,6 @@ async fn handle_server_message(
     websocket: &mut Option<CodexWebSocket>,
     active_rpc: &mut Option<PendingRpc>,
     rpc_queue: &mut VecDeque<PendingRpc>,
-    reverse_current: &mut Option<PendingReverse>,
     reverse_queue: &mut VecDeque<PendingReverse>,
 ) {
     if value.get("method").is_some() {
@@ -424,7 +414,6 @@ async fn handle_server_message(
                 original_id: value["id"].clone(),
                 method: method.to_string(),
                 params: params.clone(),
-                deadline: Instant::now() + REVERSE_REQUEST_TIMEOUT,
             };
             reverse_queue.push_back(pending);
         } else if protocol::is_server_notification_method(method) {
@@ -642,7 +631,11 @@ fn response_from_codex(request_id: String, value: Value) -> RpcResponse {
         return RpcResponse::failure(
             request_id,
             RpcError {
-                code: "codex_error",
+                code: error
+                    .get("code")
+                    .and_then(Value::as_str)
+                    .unwrap_or("codex_error")
+                    .to_owned(),
                 message: error
                     .get("message")
                     .and_then(Value::as_str)
@@ -697,4 +690,29 @@ async fn publish_state(
             error,
         })
         .await;
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn codex_error_code_message_and_data_are_preserved() {
+        let response = response_from_codex(
+            "request-1".to_string(),
+            json!({
+                "error": {
+                    "code": "mock_custom_error",
+                    "message": "mock Codex error",
+                    "data": {"source": "mock"}
+                }
+            }),
+        );
+
+        assert!(!response.ok);
+        let error = response.error.unwrap();
+        assert_eq!(error.code, "mock_custom_error");
+        assert_eq!(error.message, "mock Codex error");
+        assert_eq!(error.data, Some(json!({"source": "mock"})));
+    }
 }

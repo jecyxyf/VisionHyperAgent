@@ -77,7 +77,7 @@ impl AgentManager {
     fn command_sender(
         &self,
         agent_name: &str,
-    ) -> Option<tokio::sync::mpsc::Sender<RuntimeCommand>> {
+    ) -> Option<tokio::sync::mpsc::UnboundedSender<RuntimeCommand>> {
         self.agents
             .get(agent_name)
             .filter(|agent| agent.last_heartbeat.elapsed() < heartbeat_timeout())
@@ -146,6 +146,9 @@ async fn create_or_attach(
     if request.version != PROTOCOL_VERSION {
         return Err(invalid_request("unsupported protocol version"));
     }
+    if let Some(model) = &request.model {
+        model.validate()?;
+    }
 
     let initialization = {
         let mut agents = lock_manager(manager)?;
@@ -188,10 +191,18 @@ async fn create_or_attach(
 
     if let Some(model) = &request.model {
         let store_handle = registry_store(manager)?;
-        let store = lock_store(&store_handle)?;
-        let codex_home = store.paths().codex_home(agent_name);
-        model.initialize_or_lock(&codex_home)?;
-        store.mark_agent_model_initialized(service_name, agent_name)?;
+        let codex_home = {
+            let store = lock_store(&store_handle)?;
+            store.paths().codex_home(agent_name)
+        };
+        if let Err(error) = model.initialize_or_lock(&codex_home).and_then(|_| {
+            lock_store(&store_handle)?.mark_agent_model_initialized(service_name, agent_name)
+        }) {
+            if create {
+                discard_created_agent(manager, service_name, agent_name);
+            }
+            return Err(error);
+        }
     } else {
         let store_handle = registry_store(manager)?;
         let store = lock_store(&store_handle)?;
@@ -370,7 +381,6 @@ async fn rpc(
             params: request.params,
             reply: reply_tx,
         })
-        .await
         .map_err(|_| agent_stopped())?;
     let response = reply_rx.await.map_err(|_| agent_stopped())?;
     serde_json::to_value(response).map_err(Error::Serialization)
@@ -411,7 +421,6 @@ async fn reverse_response(
             error,
             reply: reply_tx,
         })
-        .await
         .map_err(|_| agent_stopped())?;
     reply_rx.await.map_err(|_| agent_stopped())??;
     Ok(json!({"version": PROTOCOL_VERSION, "ok": true}))
@@ -659,6 +668,16 @@ fn lock_store(
     store
         .lock()
         .map_err(|_| Error::internal("registry lock poisoned"))
+}
+
+fn discard_created_agent(manager: &Arc<Mutex<AgentManager>>, service_name: &str, agent_name: &str) {
+    let Ok(store_handle) = registry_store(manager) else {
+        return;
+    };
+    let Ok(store) = lock_store(&store_handle) else {
+        return;
+    };
+    let _ = store.delete_agent(service_name, agent_name);
 }
 
 fn lock_manager(

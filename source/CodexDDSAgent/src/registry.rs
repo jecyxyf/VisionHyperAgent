@@ -521,18 +521,12 @@ mod tests {
             .unwrap_err();
         assert!(matches!(
             service_error,
-            Error::Rpc(RpcError {
-                code: "agent_exists",
-                ..
-            })
+            Error::Rpc(RpcError { code, .. }) if code == "agent_exists"
         ));
         let agent_error = store.create_agent("main-studio", "desktop-a").unwrap_err();
         assert!(matches!(
             agent_error,
-            Error::Rpc(RpcError {
-                code: "agent_exists",
-                ..
-            })
+            Error::Rpc(RpcError { code, .. }) if code == "agent_exists"
         ));
     }
 

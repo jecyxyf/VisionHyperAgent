@@ -103,7 +103,6 @@ struct ReverseResponseRequest {
 
 #[derive(Debug, Deserialize)]
 struct LogsRequest {
-    endpoint: Option<String>,
     service_name: String,
     agent_name: String,
 }
@@ -125,6 +124,7 @@ async fn main() {
     let mut http_port = 17700u16;
     let mut home = std::env::temp_dir().join("CodexDDSAgentTestUI");
     let mut open_browser = false;
+    let mut discovery_session = true;
     let mut index = 1;
     while index < arguments.len() {
         match arguments[index].as_str() {
@@ -146,15 +146,21 @@ async fn main() {
                 });
             }
             "--open" => open_browser = true,
+            "--no-discovery" => discovery_session = false,
             _ => {}
         }
         index += 1;
     }
 
+    let discovery = if discovery_session {
+        Some(open_discovery_session().await)
+    } else {
+        None
+    };
     let state = Arc::new(TestUiState {
         home,
         inner: Mutex::new(TestUiInner {
-            session: Some(open_discovery_session().await),
+            session: discovery,
             endpoint: None,
             services: HashMap::new(),
             feeds: HashMap::new(),
@@ -435,7 +441,7 @@ async fn start_local_service(state: &Arc<TestUiState>, body: &Value) -> Result<V
         .await
         .map_err(|error| error.to_string())?;
     let port = runtime.port();
-    let endpoint = format!("127.0.0.1:{port}");
+    let endpoint = format!("tcp/127.0.0.1:{port}");
     let session = open_direct_session(&endpoint).await?;
     let mut inner = state.inner.lock().await;
     inner
@@ -512,7 +518,7 @@ async fn agent_status(state: &Arc<TestUiState>, body: &Value) -> Result<Value, A
     let request: AgentRequest = parse_body(body)?;
     let session = ensure_session(state, request.endpoint.as_deref()).await?;
     let key = format!(
-        "codex-dds/v1/{}/agent/{}/status/get",
+        "codex-dds/v1/{}/{}/status/get",
         request.service_name, request.agent_name
     );
     query_json(&session, &key, json!({"version": 1})).await
@@ -620,7 +626,10 @@ async fn query_json(session: &Session, key: &str, payload: Value) -> Result<Valu
         .payload(payload.to_string())
         .await
         .map_err(|error| ApiError::new(500, error.to_string()))?;
+    let mut reply_count = 0usize;
+    let mut diagnostics = Vec::new();
     while let Ok(reply) = replies.recv_async().await {
+        reply_count += 1;
         let payload = match reply.result() {
             Ok(sample) => sample
                 .payload()
@@ -631,13 +640,17 @@ async fn query_json(session: &Session, key: &str, payload: Value) -> Result<Valu
                 .try_to_string()
                 .map_err(|_| "error payload is not UTF-8")?,
         };
+        diagnostics.push(format!("{:?}", reply.result()));
         if let Ok(value) = serde_json::from_str::<Value>(&payload) {
             return Ok(value);
         }
+        diagnostics.push(format!("payload={payload}"));
     }
     Err(ApiError::new(
         500,
-        format!("query {key} did not return JSON"),
+        format!(
+            "query {key} did not return JSON; replies={reply_count}; diagnostics={diagnostics:?}"
+        ),
     ))
 }
 

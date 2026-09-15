@@ -4,7 +4,7 @@ use serde_json::Value;
 #[derive(Debug, Clone, Eq, PartialEq, Serialize, thiserror::Error)]
 #[error("{message}")]
 pub struct RpcError {
-    pub code: &'static str,
+    pub code: String,
     pub message: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub data: Option<Value>,
@@ -13,7 +13,7 @@ pub struct RpcError {
 impl RpcError {
     pub fn new(code: &'static str, message: impl Into<String>) -> Self {
         Self {
-            code,
+            code: code.to_owned(),
             message: message.into(),
             data: None,
         }

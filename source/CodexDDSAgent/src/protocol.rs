@@ -224,10 +224,7 @@ mod tests {
         let error = request.validate().unwrap_err();
         assert!(matches!(
             error,
-            Error::Rpc(RpcError {
-                code: "invalid_request",
-                ..
-            })
+            Error::Rpc(RpcError { code, .. }) if code == "invalid_request"
         ));
     }
 
@@ -242,10 +239,7 @@ mod tests {
         let error = request.validate().unwrap_err();
         assert!(matches!(
             error,
-            Error::Rpc(RpcError {
-                code: "unknown_method",
-                ..
-            })
+            Error::Rpc(RpcError { code, .. }) if code == "unknown_method"
         ));
     }
 

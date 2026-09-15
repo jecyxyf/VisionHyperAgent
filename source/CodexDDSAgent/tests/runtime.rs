@@ -76,7 +76,6 @@ async fn rpc_requests_are_processed_in_fifo_order() {
                 params: Value::Null,
                 reply,
             })
-            .await
             .unwrap();
     }
 
@@ -117,7 +116,6 @@ async fn reverse_requests_are_published_one_at_a_time() {
             error: None,
             reply: reply_tx,
         })
-        .await
         .unwrap();
     tokio::time::timeout(Duration::from_secs(2), reply_rx)
         .await
@@ -145,7 +143,6 @@ async fn stop_fails_active_and_queued_requests() {
                 params: Value::Null,
                 reply,
             })
-            .await
             .unwrap();
     }
     tokio::time::sleep(Duration::from_millis(100)).await;
@@ -158,6 +155,41 @@ async fn stop_fails_active_and_queued_requests() {
             .unwrap();
         assert_eq!(response.error.unwrap().code, "agent_stopped");
     }
+}
+
+#[tokio::test]
+async fn rpc_queue_has_no_capacity_limit_and_stop_waits_for_cleanup() {
+    let root = tempfile::tempdir().unwrap();
+    let (runtime, _events) = start_mock(&["--delay-ms", "5000"], &root).await;
+    let sender = runtime.command_sender();
+    let mut replies = Vec::new();
+
+    for index in 0..1100 {
+        let (reply_tx, reply_rx) = oneshot::channel();
+        sender
+            .send(RuntimeCommand::Rpc {
+                request_id: format!("request-{index}"),
+                method: "account/usage/read".into(),
+                params: Value::Null,
+                reply: reply_tx,
+            })
+            .unwrap();
+        replies.push(reply_rx);
+    }
+    runtime.stop().await.unwrap();
+    for reply in replies {
+        let response = tokio::time::timeout(Duration::from_secs(2), reply)
+            .await
+            .unwrap()
+            .unwrap();
+        assert_eq!(response.error.unwrap().code, "agent_stopped");
+    }
+
+    let (status_tx, status_rx) = oneshot::channel();
+    let send_result = sender.send(RuntimeCommand::Status { reply: status_tx });
+    assert!(send_result.is_err(), "worker must be closed after stop");
+    drop(send_result);
+    assert!(status_rx.await.is_err());
 }
 
 #[tokio::test]
@@ -182,7 +214,6 @@ async fn crashed_process_is_restarted_and_handshakes_again() {
             params: Value::Null,
             reply: reply_tx,
         })
-        .await
         .unwrap();
 
     let mut saw_failure = false;

@@ -175,6 +175,77 @@ async fn concurrent_create_for_one_agent_allows_only_one_runtime() {
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn invalid_create_does_not_leave_agent_registration_or_config() {
+    let fixture = ServiceFixture::new("service-agents-invalid-create", &[]).await;
+    let client = open_client(fixture.port).await;
+    let mut invalid = model_payload();
+    invalid["model"]["providers"][0]["default_model"] = json!("missing-model");
+
+    let response = query_json(
+        client.clone(),
+        "codex-dds/v1/service-agents-invalid-create/agent/desktop-invalid/create",
+        invalid,
+    )
+    .await;
+    assert_eq!(response["ok"], false);
+    assert_eq!(response["error"]["code"], "invalid_model_config");
+    assert!(!StoragePaths::new(fixture.root.path())
+        .codex_home("desktop-invalid")
+        .join("config.toml")
+        .exists());
+
+    let created = query_json(
+        client.clone(),
+        "codex-dds/v1/service-agents-invalid-create/agent/desktop-invalid/create",
+        model_payload(),
+    )
+    .await;
+    assert_eq!(created["state"], "running");
+
+    client.close().await.unwrap();
+    fixture.service.shutdown().await.unwrap();
+
+    let store = RegistryStore::open(StoragePaths::new(fixture.root.path())).unwrap();
+    assert_eq!(
+        store
+            .list_agents("service-agents-invalid-create")
+            .unwrap()
+            .len(),
+        2
+    );
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn codex_error_code_and_data_are_passed_through() {
+    let fixture = ServiceFixture::new(
+        "service-agents-codex-error",
+        &["--rpc-error-code", "mock_custom_error"],
+    )
+    .await;
+    let client = open_client(fixture.port).await;
+    query_json(
+        client.clone(),
+        "codex-dds/v1/service-agents-codex-error/agent/desktop-a/create",
+        model_payload(),
+    )
+    .await;
+
+    let response = query_json(
+        client.clone(),
+        "codex-dds/v1/service-agents-codex-error/desktop-a/rpc",
+        rpc_payload("error-request", "account/usage/read"),
+    )
+    .await;
+    assert_eq!(response["ok"], false);
+    assert_eq!(response["error"]["code"], "mock_custom_error");
+    assert_eq!(response["error"]["message"], "mock Codex error");
+    assert_eq!(response["error"]["data"]["source"], "mock");
+
+    client.close().await.unwrap();
+    fixture.service.shutdown().await.unwrap();
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn concurrent_attach_for_one_agent_allows_only_one_client() {
     let fixture = ServiceFixture::new("service-agents-attach-race", &[]).await;
     let client = open_client(fixture.port).await;
