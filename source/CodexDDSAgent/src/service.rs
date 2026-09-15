@@ -1,5 +1,7 @@
 use std::{
+    fs,
     net::{TcpListener, UdpSocket},
+    path::{Path, PathBuf},
     sync::{Arc, Mutex},
     time::Duration,
 };
@@ -11,9 +13,12 @@ use zenoh::{Config, Session};
 use crate::{
     error::{Error, RpcError},
     instance::{
-        handle_agent_query, stop_all_agents, stop_expired_agents, AgentManager, AgentQueryKind,
+        delete_agent, handle_agent_query, stop_all_agents, stop_expired_agents, AgentManager,
+        AgentQueryKind,
     },
-    registry::{PortMode, RegistryStore, ServiceConfig, ServiceRegistryState},
+    registry::{
+        PortMode, RegistryStore, ServiceConfig, ServiceRecord, ServiceRegistryState, StoragePaths,
+    },
 };
 
 pub const INFO_KEY: &str = "codex-dds/v1/service/info";
@@ -22,6 +27,8 @@ pub const PROTOCOL_VERSION: i64 = 1;
 #[derive(Debug, Clone)]
 struct RuntimeState {
     service_name: String,
+    created_at: String,
+    conflict_id: String,
     host: String,
     port: u16,
     store: Arc<Mutex<RegistryStore>>,
@@ -33,6 +40,7 @@ pub struct ServiceRuntime {
     agents: Arc<Mutex<AgentManager>>,
     tasks: JoinSet<()>,
     shutdown_tx: watch::Sender<bool>,
+    requested_state: Arc<Mutex<Option<ServiceRegistryState>>>,
 }
 
 impl ServiceRuntime {
@@ -40,25 +48,31 @@ impl ServiceRuntime {
         store: Arc<Mutex<RegistryStore>>,
         service_name: &str,
     ) -> Result<Self, Error> {
-        let config = {
+        let (service, config) = {
             let store = store
                 .lock()
                 .map_err(|_| Error::internal("registry lock poisoned"))?;
             let service = store.get_service(service_name)?.ok_or_else(|| {
                 Error::Rpc(RpcError::new("service_not_found", "service does not exist"))
             })?;
-            crate::registry::service_config(&service)?
+            let config = crate::registry::service_config(&service)?;
+            (service, config)
         };
 
         let (session, port) = open_zenoh_session(&config).await?;
         let state = RuntimeState {
             service_name: service_name.to_string(),
+            created_at: service.created_at,
+            conflict_id: service.conflict_id,
             host: advertised_host(&config.listen_host),
             port,
             store,
         };
 
-        if service_name_conflict(&session, service_name).await? {
+        if let Some(competitor) = conflicting_service(&session, &state)
+            .await?
+            .filter(|competitor| service_loses(&state, competitor))
+        {
             session
                 .close()
                 .await
@@ -66,7 +80,10 @@ impl ServiceRuntime {
             state.update_registry(ServiceRegistryState::NameConflict, Some(port))?;
             return Err(Error::Rpc(RpcError::new(
                 "name_conflict",
-                "another online service uses the same service_name",
+                format!(
+                    "newer service loses the name conflict against {}",
+                    competitor.conflict_id
+                ),
             )));
         }
 
@@ -75,15 +92,28 @@ impl ServiceRuntime {
         declare_status_queryable(&session, state.clone(), &mut tasks).await?;
         let agents = Arc::new(Mutex::new(AgentManager::new(state.store.clone())));
         declare_agent_queryables(&session, state.clone(), agents.clone(), &mut tasks).await?;
+        let (shutdown_tx, shutdown_rx) = watch::channel(false);
         tasks.spawn(heartbeat_monitor(
             session.clone(),
             agents.clone(),
             service_name.to_string(),
         ));
+        let requested_state = Arc::new(Mutex::new(None));
+        tasks.spawn(name_conflict_monitor(
+            session.clone(),
+            state.clone(),
+            requested_state.clone(),
+            shutdown_tx.clone(),
+        ));
+        tasks.spawn(local_control_monitor(
+            session.clone(),
+            state.clone(),
+            agents.clone(),
+            shutdown_tx.clone(),
+        ));
 
         state.update_registry(ServiceRegistryState::Running, Some(port))?;
         publish_status(&session, &state, "running").await?;
-        let (shutdown_tx, shutdown_rx) = watch::channel(false);
         tokio::spawn(wait_for_shutdown(shutdown_rx));
 
         Ok(Self {
@@ -92,6 +122,7 @@ impl ServiceRuntime {
             agents,
             tasks,
             shutdown_tx,
+            requested_state,
         })
     }
 
@@ -125,11 +156,101 @@ impl ServiceRuntime {
             .close()
             .await
             .map_err(|error| Error::internal(error.to_string()))?;
+        let final_state = self
+            .requested_state
+            .lock()
+            .map_err(|_| Error::internal("shutdown state lock poisoned"))?
+            .unwrap_or(ServiceRegistryState::Stopped);
         self.state
-            .update_registry(ServiceRegistryState::Stopped, Some(self.state.port))?;
+            .update_registry(final_state, Some(self.state.port))?;
         stop_agents_result?;
         Ok(())
     }
+}
+
+async fn name_conflict_monitor(
+    session: Session,
+    state: RuntimeState,
+    requested_state: Arc<Mutex<Option<ServiceRegistryState>>>,
+    shutdown_tx: watch::Sender<bool>,
+) {
+    loop {
+        tokio::time::sleep(Duration::from_secs(1)).await;
+        let Ok(competitor) = conflicting_service(&session, &state).await else {
+            continue;
+        };
+        let Some(competitor) = competitor.filter(|competitor| service_loses(&state, competitor))
+        else {
+            continue;
+        };
+        let _ = competitor;
+        if let Ok(mut requested) = requested_state.lock() {
+            *requested = Some(ServiceRegistryState::NameConflict);
+        }
+        let _ = shutdown_tx.send(true);
+        break;
+    }
+}
+
+async fn local_control_monitor(
+    session: Session,
+    state: RuntimeState,
+    agents: Arc<Mutex<AgentManager>>,
+    shutdown_tx: watch::Sender<bool>,
+) {
+    loop {
+        let paths = {
+            let Ok(store) = state.store.lock() else {
+                break;
+            };
+            store.paths().clone()
+        };
+        if handle_shutdown_file(&paths, &state.service_name) {
+            let _ = shutdown_tx.send(true);
+            break;
+        }
+        if let Some(command_file) = latest_command_file(&paths, &state.service_name) {
+            if let Some(agent_name) = read_agent_delete_command(&command_file) {
+                let _ = delete_agent(&session, &agents, &state.service_name, &agent_name).await;
+            }
+        }
+        tokio::time::sleep(Duration::from_millis(200)).await;
+    }
+}
+
+fn handle_shutdown_file(paths: &StoragePaths, service_name: &str) -> bool {
+    let path = paths.service_shutdown_file(service_name);
+    if !path.is_file() {
+        return false;
+    }
+    fs::remove_file(&path).is_ok() || !path.exists()
+}
+
+fn latest_command_file(paths: &StoragePaths, service_name: &str) -> Option<PathBuf> {
+    let directory = paths.service_agent_commands_dir(service_name);
+    let mut latest: Option<(std::time::SystemTime, PathBuf)> = None;
+    for entry in fs::read_dir(&directory).ok()?.flatten() {
+        let path = entry.path();
+        if path.extension().and_then(|value| value.to_str()) != Some("json") {
+            continue;
+        }
+        let modified = entry.metadata().ok()?.modified().ok()?;
+        if latest.as_ref().is_none_or(|(old, _)| modified > *old) {
+            latest = Some((modified, path));
+        }
+    }
+    latest.map(|(_, path)| path)
+}
+
+fn read_agent_delete_command(path: &Path) -> Option<String> {
+    let contents = fs::read_to_string(path).ok()?;
+    let removed = fs::remove_file(path).is_ok();
+    if !removed && path.exists() {
+        return None;
+    }
+    let value = serde_json::from_str::<Value>(&contents).ok()?;
+    let agent_name = value.get("agent_name")?.as_str()?.to_string();
+    (!agent_name.is_empty()).then_some(agent_name)
 }
 
 async fn heartbeat_monitor(
@@ -157,6 +278,8 @@ impl RuntimeState {
             "version": PROTOCOL_VERSION,
             "protocol_version": PROTOCOL_VERSION,
             "service_name": self.service_name,
+            "created_at": self.created_at,
+            "conflict_id": self.conflict_id,
             "host": self.host,
             "port": self.port,
             "state": "running",
@@ -433,7 +556,10 @@ async fn open_zenoh_session(config: &ServiceConfig) -> Result<(Session, u16), Er
     )))
 }
 
-async fn service_name_conflict(session: &Session, service_name: &str) -> Result<bool, Error> {
+async fn conflicting_service(
+    session: &Session,
+    state: &RuntimeState,
+) -> Result<Option<ServiceRecord>, Error> {
     let replies = session
         .get(INFO_KEY)
         .timeout(Duration::from_millis(500))
@@ -449,11 +575,32 @@ async fn service_name_conflict(session: &Session, service_name: &str) -> Result<
         let Ok(value) = serde_json::from_str::<Value>(&payload) else {
             continue;
         };
-        if value.get("service_name").and_then(Value::as_str) == Some(service_name) {
-            return Ok(true);
+        let service_name = value.get("service_name").and_then(Value::as_str);
+        let conflict_id = value.get("conflict_id").and_then(Value::as_str);
+        let created_at = value.get("created_at").and_then(Value::as_str);
+        if service_name == Some(state.service_name.as_str())
+            && conflict_id != Some(state.conflict_id.as_str())
+        {
+            return Ok(Some(ServiceRecord {
+                service_name: service_name.unwrap_or_default().to_string(),
+                created_at: created_at.unwrap_or_default().to_string(),
+                config_json: String::new(),
+                last_started_at: None,
+                last_listen_port: None,
+                conflict_id: conflict_id.unwrap_or_default().to_string(),
+                state: ServiceRegistryState::Running,
+            }));
         }
     }
-    Ok(false)
+    Ok(None)
+}
+
+fn service_loses(state: &RuntimeState, competitor: &ServiceRecord) -> bool {
+    match state.created_at.cmp(&competitor.created_at) {
+        std::cmp::Ordering::Less => false,
+        std::cmp::Ordering::Greater => true,
+        std::cmp::Ordering::Equal => state.conflict_id > competitor.conflict_id,
+    }
 }
 
 fn port_candidates(config: &ServiceConfig) -> Result<Vec<u16>, Error> {

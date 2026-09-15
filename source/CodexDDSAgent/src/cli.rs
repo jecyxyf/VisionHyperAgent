@@ -113,9 +113,10 @@ pub fn run(args: Cli) -> Result<(), Error> {
                 json!({
                     "service": service,
                     "initial_agent": agent,
-                    "service_started": false
+                    "service_started": true
                 })
             );
+            return run_service(store, &service_name);
         }
         Command::Service(ServiceCommand::Start { service_name }) => {
             let store = RegistryStore::open(StoragePaths::from_environment()?)?;
@@ -125,18 +126,7 @@ pub fn run(args: Cli) -> Result<(), Error> {
                     "service does not exist",
                 )));
             }
-            let runtime = tokio::runtime::Builder::new_multi_thread()
-                .enable_all()
-                .build()
-                .map_err(Error::Io)?;
-            runtime.block_on(async {
-                let service = ServiceRuntime::start(
-                    std::sync::Arc::new(std::sync::Mutex::new(store)),
-                    &service_name,
-                )
-                .await?;
-                service.run_until_shutdown().await
-            })?;
+            run_service(store, &service_name)?;
         }
         Command::Service(ServiceCommand::List) => {
             let store = RegistryStore::open(StoragePaths::from_environment()?)?;
@@ -144,11 +134,30 @@ pub fn run(args: Cli) -> Result<(), Error> {
         }
         Command::Service(ServiceCommand::Shutdown { service_name }) => {
             let store = RegistryStore::open(StoragePaths::from_environment()?)?;
-            store.update_service_runtime(
-                &service_name,
-                crate::registry::ServiceRegistryState::Stopped,
-                None,
-            )?;
+            let service = store.get_service(&service_name)?.ok_or_else(|| {
+                Error::Rpc(crate::error::RpcError::new(
+                    "service_not_found",
+                    "service does not exist",
+                ))
+            })?;
+            let mut stopped = matches!(
+                service.state,
+                crate::registry::ServiceRegistryState::Stopped
+            );
+            if !stopped {
+                let paths = StoragePaths::from_environment()?;
+                let shutdown = paths.service_shutdown_file(&service_name);
+                write_atomic(&shutdown, b"")?;
+                stopped = wait_for_service_stop(&store, &service_name);
+                if !stopped {
+                    store.update_service_runtime(
+                        &service_name,
+                        crate::registry::ServiceRegistryState::Stopped,
+                        None,
+                    )?;
+                    let _ = std::fs::remove_file(&shutdown);
+                }
+            }
             println!(
                 "{}",
                 json!({"service_name": service_name, "state": "stopped"})
@@ -181,7 +190,29 @@ pub fn run(args: Cli) -> Result<(), Error> {
                     "agent is active; use --force to stop and delete",
                 )));
             }
-            store.delete_agent(&service_name, &agent_name)?;
+            let service = store.get_service(&service_name)?.ok_or_else(|| {
+                Error::Rpc(crate::error::RpcError::new(
+                    "service_not_found",
+                    "service does not exist",
+                ))
+            })?;
+            let mut deleted = false;
+            if force && service.state == crate::registry::ServiceRegistryState::Running {
+                let paths = StoragePaths::from_environment()?;
+                let commands = paths.service_agent_commands_dir(&service_name);
+                let command = commands.join(format!("delete-{agent_name}.json"));
+                write_atomic(
+                    &command,
+                    json!({"action": "delete", "agent_name": agent_name}).to_string(),
+                )?;
+                deleted = wait_for_agent_delete(&store, &service_name, &agent_name);
+                if !deleted {
+                    let _ = std::fs::remove_file(&command);
+                }
+            }
+            if !deleted {
+                store.delete_agent(&service_name, &agent_name)?;
+            }
             println!(
                 "{}",
                 json!({"service_name": service_name, "agent_name": agent_name, "deleted": true})
@@ -220,6 +251,60 @@ pub fn run(args: Cli) -> Result<(), Error> {
             println!("{}", serde_json::to_string_pretty(&config)?);
         }
     }
+    Ok(())
+}
+
+fn run_service(store: RegistryStore, service_name: &str) -> Result<(), Error> {
+    let runtime = tokio::runtime::Builder::new_multi_thread()
+        .enable_all()
+        .build()
+        .map_err(Error::Io)?;
+    runtime.block_on(async {
+        let service = ServiceRuntime::start(
+            std::sync::Arc::new(std::sync::Mutex::new(store)),
+            service_name,
+        )
+        .await?;
+        service.run_until_shutdown().await
+    })
+}
+
+fn wait_for_service_stop(store: &RegistryStore, service_name: &str) -> bool {
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(5);
+    while std::time::Instant::now() < deadline {
+        std::thread::sleep(std::time::Duration::from_millis(50));
+        if let Ok(Some(service)) = store.get_service(service_name) {
+            if service.state == crate::registry::ServiceRegistryState::Stopped {
+                return true;
+            }
+        }
+    }
+    false
+}
+
+fn wait_for_agent_delete(store: &RegistryStore, service_name: &str, agent_name: &str) -> bool {
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(5);
+    while std::time::Instant::now() < deadline {
+        std::thread::sleep(std::time::Duration::from_millis(50));
+        if store
+            .get_agent(service_name, agent_name)
+            .map(|agent| agent.is_none())
+            .unwrap_or(false)
+        {
+            return true;
+        }
+    }
+    false
+}
+
+fn write_atomic(path: &std::path::Path, contents: impl AsRef<[u8]>) -> Result<(), Error> {
+    let temporary = path.with_extension("tmp");
+    let parent = path
+        .parent()
+        .ok_or_else(|| Error::internal("control file must have a parent directory"))?;
+    std::fs::create_dir_all(parent)?;
+    std::fs::write(&temporary, contents)?;
+    std::fs::rename(&temporary, path)?;
     Ok(())
 }
 

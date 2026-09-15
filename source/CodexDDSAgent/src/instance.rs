@@ -35,6 +35,7 @@ pub enum AgentQueryKind {
 pub struct AgentManager {
     store: Arc<Mutex<RegistryStore>>,
     agents: HashMap<String, ManagedAgent>,
+    initializing: HashMap<String, Arc<tokio::sync::Mutex<()>>>,
 }
 
 #[derive(Clone)]
@@ -48,6 +49,7 @@ impl AgentManager {
         Self {
             store,
             agents: HashMap::new(),
+            initializing: HashMap::new(),
         }
     }
 
@@ -59,6 +61,13 @@ impl AgentManager {
         self.agents
             .get(agent_name)
             .is_some_and(|agent| agent.last_heartbeat.elapsed() < heartbeat_timeout())
+    }
+
+    fn initialization_lock(&mut self, agent_name: &str) -> Arc<tokio::sync::Mutex<()>> {
+        self.initializing
+            .entry(agent_name.to_string())
+            .or_insert_with(|| Arc::new(tokio::sync::Mutex::new(())))
+            .clone()
     }
 
     fn take_all_agents(&mut self) -> Vec<(String, ManagedAgent)> {
@@ -137,6 +146,12 @@ async fn create_or_attach(
     if request.version != PROTOCOL_VERSION {
         return Err(invalid_request("unsupported protocol version"));
     }
+
+    let initialization = {
+        let mut agents = lock_manager(manager)?;
+        agents.initialization_lock(agent_name)
+    };
+    let _initialization_guard = initialization.lock().await;
 
     if create {
         let store_handle = registry_store(manager)?;
@@ -300,6 +315,11 @@ async fn stop_agent(
     agent_name: &str,
     final_state: AgentRegistryState,
 ) -> Result<(), Error> {
+    let initialization = {
+        let mut agents = lock_manager(manager)?;
+        agents.initialization_lock(agent_name)
+    };
+    let _initialization_guard = initialization.lock().await;
     let runtime = {
         let mut agents = lock_manager(manager)?;
         agents.agents.remove(agent_name)
@@ -458,8 +478,8 @@ pub async fn stop_expired_agents(
     manager: &Arc<Mutex<AgentManager>>,
     service_name: &str,
 ) -> Vec<String> {
-    let (expired, runtimes) = {
-        let mut agents = match manager.lock() {
+    let expired: Vec<String> = {
+        let agents = match manager.lock() {
             Ok(agents) => agents,
             Err(_) => return Vec::new(),
         };
@@ -469,31 +489,47 @@ pub async fn stop_expired_agents(
             .filter(|(_, agent)| agent.last_heartbeat.elapsed() >= heartbeat_timeout())
             .map(|(name, _)| name.clone())
             .collect();
-        let mut runtimes = Vec::new();
-        for name in &expired {
-            if let Some(runtime) = agents.agents.remove(name) {
-                runtimes.push(runtime);
-            }
-        }
-        (expired, runtimes)
+        expired
     };
-    for runtime in runtimes {
-        let _ = runtime.runtime.stop().await;
-    }
 
     let store_handle = match registry_store(manager) {
         Ok(store_handle) => store_handle,
         Err(_) => return expired,
     };
-    if let Ok(store) = lock_store(&store_handle) {
-        for name in &expired {
-            let _ = store.mark_agent_stopped(service_name, name, AgentRegistryState::Stopped);
+    let mut stopped = Vec::new();
+    for name in expired {
+        let initialization = {
+            let mut agents = match manager.lock() {
+                Ok(agents) => agents,
+                Err(_) => break,
+            };
+            agents.initialization_lock(&name)
+        };
+        let _initialization_guard = initialization.lock().await;
+        let runtime = match manager.lock() {
+            Ok(mut agents) => {
+                let expired = agents
+                    .agents
+                    .get(&name)
+                    .is_some_and(|agent| agent.last_heartbeat.elapsed() >= heartbeat_timeout());
+                if expired {
+                    agents.agents.remove(&name)
+                } else {
+                    None
+                }
+            }
+            Err(_) => None,
+        };
+        if let Some(runtime) = runtime {
+            let _ = runtime.runtime.stop().await;
+            stopped.push(name.clone());
         }
-    }
-    for name in &expired {
+        if let Ok(store) = lock_store(&store_handle) {
+            let _ = store.mark_agent_stopped(service_name, &name, AgentRegistryState::Stopped);
+        }
         let _ = publish_agent_state(session, service_name, &name, "stopped").await;
     }
-    expired
+    stopped
 }
 
 pub async fn stop_all_agents(
@@ -512,10 +548,37 @@ pub async fn stop_all_agents(
             let _ =
                 store.mark_agent_stopped(service_name, &agent_name, AgentRegistryState::Stopped);
         }
-        publish_agent_state(session, service_name, &agent_name, "stopped").await;
+        let _ = publish_agent_state(session, service_name, &agent_name, "stopped").await;
         stop_result?;
     }
     Ok(())
+}
+
+pub async fn delete_agent(
+    session: &Session,
+    manager: &Arc<Mutex<AgentManager>>,
+    service_name: &str,
+    agent_name: &str,
+) -> Result<(), Error> {
+    let store_handle = registry_store(manager)?;
+    {
+        let store = lock_store(&store_handle)?;
+        if store.get_agent(service_name, agent_name)?.is_none() {
+            return Ok(());
+        }
+    }
+
+    stop_agent(
+        session,
+        manager,
+        service_name,
+        agent_name,
+        AgentRegistryState::Stopped,
+    )
+    .await?;
+    let store_handle = registry_store(manager)?;
+    let result = lock_store(&store_handle)?.delete_agent(service_name, agent_name);
+    result
 }
 
 async fn publish_agent_state(

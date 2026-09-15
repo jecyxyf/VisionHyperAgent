@@ -4,7 +4,6 @@ use serde_json::Value;
 #[derive(Debug, Clone, Eq, PartialEq, Serialize, thiserror::Error)]
 #[error("{message}")]
 pub struct RpcError {
-    #[serde(skip_serializing)]
     pub code: &'static str,
     pub message: String,
     #[serde(skip_serializing_if = "Option::is_none")]

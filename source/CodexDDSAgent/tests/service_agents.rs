@@ -137,6 +137,92 @@ async fn multiple_agents_have_isolated_lifecycles_and_parallel_queues() {
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn concurrent_create_for_one_agent_allows_only_one_runtime() {
+    let fixture = ServiceFixture::new("service-agents-create-race", &[]).await;
+    let client = open_client(fixture.port).await;
+    let key = "codex-dds/v1/service-agents-create-race/agent/desktop-race/create";
+
+    let first = tokio::spawn(query_json(client.clone(), key, model_payload()));
+    let second = tokio::spawn(query_json(client.clone(), key, model_payload()));
+    let first = tokio::time::timeout(Duration::from_secs(5), first)
+        .await
+        .unwrap()
+        .unwrap();
+    let second = tokio::time::timeout(Duration::from_secs(5), second)
+        .await
+        .unwrap()
+        .unwrap();
+
+    let (winner, loser) = if first["state"] == "running" {
+        (first, second)
+    } else {
+        (second, first)
+    };
+    assert_eq!(winner["state"], "running");
+    assert_eq!(loser["error"]["code"], "agent_exists");
+
+    let status = query_json(
+        client.clone(),
+        "codex-dds/v1/service-agents-create-race/desktop-race/status/get",
+        json!({"version": 1}),
+    )
+    .await;
+    assert_eq!(status["state"], "running");
+    assert_eq!(status["codex_process_state"], "running");
+
+    client.close().await.unwrap();
+    fixture.service.shutdown().await.unwrap();
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn concurrent_attach_for_one_agent_allows_only_one_client() {
+    let fixture = ServiceFixture::new("service-agents-attach-race", &[]).await;
+    let client = open_client(fixture.port).await;
+    let create_key = "codex-dds/v1/service-agents-attach-race/agent/desktop-race/create";
+    let attach_key = "codex-dds/v1/service-agents-attach-race/agent/desktop-race/attach";
+
+    let created = query_json(client.clone(), create_key, model_payload()).await;
+    assert_eq!(created["state"], "running");
+    let detached = query_json(
+        client.clone(),
+        "codex-dds/v1/service-agents-attach-race/agent/desktop-race/detach",
+        json!({"version": 1}),
+    )
+    .await;
+    assert_eq!(detached["state"], "stopped");
+
+    let first = tokio::spawn(query_json(
+        client.clone(),
+        attach_key,
+        json!({"version": 1}),
+    ));
+    let second = tokio::spawn(query_json(
+        client.clone(),
+        attach_key,
+        json!({"version": 1}),
+    ));
+    let first = tokio::time::timeout(Duration::from_secs(5), first)
+        .await
+        .unwrap()
+        .unwrap();
+    let second = tokio::time::timeout(Duration::from_secs(5), second)
+        .await
+        .unwrap()
+        .unwrap();
+
+    let (winner, loser) = if first["state"] == "running" {
+        (first, second)
+    } else {
+        (second, first)
+    };
+    assert_eq!(winner["state"], "running");
+    assert_eq!(loser["error"]["code"], "agent_busy");
+
+    client.close().await.unwrap();
+    fixture.service.shutdown().await.unwrap();
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn heartbeat_timeout_stops_runtime_but_keeps_registration_and_config() {
     let fixture = ServiceFixture::new("service-agents-heartbeat", &[]).await;
     let client = open_client(fixture.port).await;

@@ -83,6 +83,7 @@ pub struct StoragePaths {
     pub root: PathBuf,
     pub registry_db: PathBuf,
     pub codex_root: PathBuf,
+    pub control_root: PathBuf,
     pub agent_binary: PathBuf,
     pub logs: PathBuf,
 }
@@ -93,6 +94,7 @@ impl StoragePaths {
         Self {
             registry_db: root.join("data/registry.db"),
             codex_root: root.join("data/codex"),
+            control_root: root.join("data/control"),
             agent_binary: root.join("agents/codex-app-server"),
             logs: root.join("agents/logs"),
             root,
@@ -117,6 +119,7 @@ impl StoragePaths {
     pub fn prepare(&self) -> Result<(), Error> {
         std::fs::create_dir_all(self.registry_db.parent().unwrap())?;
         std::fs::create_dir_all(&self.codex_root)?;
+        std::fs::create_dir_all(&self.control_root)?;
         std::fs::create_dir_all(self.agent_binary.parent().unwrap())?;
         std::fs::create_dir_all(&self.logs)?;
         Ok(())
@@ -128,6 +131,18 @@ impl StoragePaths {
 
     pub fn agent_log(&self, agent_name: &str) -> PathBuf {
         self.logs.join(agent_name)
+    }
+
+    pub fn service_control_dir(&self, service_name: &str) -> PathBuf {
+        self.control_root.join(service_name)
+    }
+
+    pub fn service_shutdown_file(&self, service_name: &str) -> PathBuf {
+        self.service_control_dir(service_name).join("shutdown")
+    }
+
+    pub fn service_agent_commands_dir(&self, service_name: &str) -> PathBuf {
+        self.service_control_dir(service_name).join("agents")
     }
 }
 

@@ -604,7 +604,7 @@ codex-dds/v1/{service_name}/{agent_name}/event
 
 规则：
 
-1. 固定版本 83 个服务端通知全量转发。
+1. 固定版本 81 个服务端通知全量转发。
 2. 不合并、不节流、不解释业务含义。
 3. 不同 Agent 事件互不转发。
 4. 不保存通知历史。
@@ -726,10 +726,10 @@ Agent 状态快照包含：
 
 | 类型 | 数量 |
 | --- | ---: |
-| 客户端请求 | 162 |
+| 客户端请求 | 159 |
 | 客户端通知 | 1 |
 | Codex 反向请求 | 11 |
-| 服务端通知 | 83 |
+| 服务端通知 | 81 |
 
 客户端请求功能分组：
 
@@ -743,7 +743,7 @@ Agent 状态快照包含：
 | 文件、命令、进程与搜索 | 21 | fs/*；command/*；process/*；fuzzyFileSearch* | rpc |
 | 模型、实验能力与远程环境 | 16 | model/*；modelProvider/*；experimentalFeature/*；permissionProfile/*；remoteControl/*；collaborationMode/list；environment/* | rpc |
 | MCP 与 Windows 沙箱 | 9 | mcpServer/*；mcpServerStatus/*；config/mcpServer/reload；windowsSandbox/* | rpc |
-| 账号、配置与遗留能力 | 23 | account/*；feedback/upload；config/*，排除 config/mcpServer/reload；configRequirements/read；externalAgentConfig/*；getConversationSummary；gitDiffToRemote；getAuthStatus | rpc |
+| 账号、配置与遗留能力 | 20 | account/*；feedback/upload；config/*，排除 config/mcpServer/reload；configRequirements/read；externalAgentConfig/* | rpc |
 
 特殊规则：
 
@@ -751,7 +751,7 @@ Agent 状态快照包含：
 2. initialized 是唯一客户端通知，也由内部握手流程发送。
 3. 除账户登录相关禁用方法外，其余可透传客户端请求全部通过 rpc 传递。
 4. ProtocolRegistry 必须引用 codex-app-server-protocol 生成的类型，不维护手写字符串白名单。
-5. 构建测试必须核对请求 162、反向请求 11、通知 83。
+5. 构建测试必须核对请求 159、反向请求 11、通知 81。
 6. Codex 子模块版本变化时重新核对并更新本文。
 
 ## 21. 错误映射
