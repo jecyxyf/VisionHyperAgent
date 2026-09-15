@@ -1,0 +1,12 @@
+[submodule "source/depends/zenoh"]
+	path = source/depends/zenoh
+	url = https://github.com/eclipse-zenoh/zenoh.git
+[submodule "source/depends/codex"]
+	path = source/depends/codex
+	url = https://github.com/openai/codex.git
+[submodule "source/depends/ultralytics"]
+	path = source/depends/ultralytics
+	url = https://github.com/ultralytics/ultralytics.git
+[submodule "source/depends/goose"]
+	path = source/depends/goose
+	url = https://github.com/block/goose.git
