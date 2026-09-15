@@ -1,0 +1,9 @@
+[package]
+name = "vha-pybind"
+description = "Python ViewModel and Rust ViewModel bridge"
+version = "0.1.0"
+edition = "2021"
+license = "Proprietary"
+
+[dependencies]
+vha-viewmodel = { path = "../../Rust/core" }

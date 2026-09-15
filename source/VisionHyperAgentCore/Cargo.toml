@@ -1,8 +1,0 @@
-[package]
-name = "vision-hyper-agent-core"
-version = "0.1.0"
-edition = "2024"
-publish = false
-
-[dependencies]
-zenoh = "1.10.1"

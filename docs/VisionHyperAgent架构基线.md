@@ -3,297 +3,346 @@
 | 项目 | 内容 |
 | --- | --- |
 | 日期 | 2026-09-15 |
-| 状态 | 三进程架构已确认，具体集成尚待验证 |
-| 文档目的 | 保持产品需求、系统边界和实施路径一致 |
-| 实施方式 | 具体实施步骤、拆分粒度和先后顺序由用户逐段指挥；本文不是自动执行计划 |
+| 状态 | 单进程多线程与 MVVM 分层已确认，具体集成待实施 |
+| 文档目的 | 保持产品需求、系统边界、模块分层和实施路径一致 |
+| 实施方式 | 具体实施步骤由用户逐段指挥；本文不是自动执行计划 |
 
 ## 1. 产品范围
 
-VisionHyperAgent 是 Agent 驱动的视觉模型桌面软件。以下五个核心流程保持不变：
+VisionHyperAgent 是 Agent 驱动的视觉模型桌面软件。五个核心流程保持不变：
 
 1. **预标注**：用户描述识别目标、外观特征、类别区别和排除情况；Agent 分析歧义、追问缺失信息并整理标注规则；用户确认后规则才可用于批量标注。描述变化后，旧分析和确认状态失效。
-2. **预训练**：当 Agent 直接预标注效果不足时，使用少量已确认数据先训练一个辅助初标模型，再用该模型辅助批量标注。这里的预训练指少量数据的种子模型训练，不是外部大规模预训练，也不自动取代人工确认。
-3. **标注**：按已确认规则和可用的辅助初标模型生成实例分割初标；用户逐图修改、删除和补充实例区域；确认后形成可训练的数据集版本。矩形框不能替代实例分割区域。
+2. **预训练**：Agent 直接预标注效果不足时，使用少量已确认数据训练辅助初标模型，再用该模型辅助批量标注。预训练是少量数据的种子模型训练，不是外部大规模预训练。
+3. **标注**：按已确认规则和可用辅助模型生成实例分割初标；用户逐图修改、删除和补充实例区域；确认后形成可训练的数据集版本。矩形框不能替代实例分割区域。
 4. **训练**：基于已确认的数据集版本发起训练；Agent 制定训练与调参方案；训练在本机 NVIDIA GPU 执行；多轮评估后登记最佳候选模型。训练计算不上云。
-5. **离线部署**：使用导出模型执行识别，不依赖在线 Agent，也不依赖 Python 训练进程。
+5. **离线部署**：使用导出模型执行识别，不依赖在线 Agent，也不依赖训练进程。
 
-相机、外部图片通信、模型库和运行页不在本次确认的不变范围内；后续由用户另行指挥。
+相机、外部图片通信、模型库和运行页不在当前确认范围内。
 
-## 2. 系统结构
+## 2. 总体架构
 
-系统明确划分为以下三个独立进程，正式名称与本文简称对应如下：
-
-| 进程名称 | 本文简称 | 仓库目录 | 职责 |
-| --- | --- | --- | --- |
-| `VisionHyperAgentAPP` | Desktop | `source/VisionHyperAgentAPP/` | Python 桌面交互与展示 |
-| `VisionHyperAgentCore` | Core | `source/VisionHyperAgentCore/` | Rust 业务核心，负责数据、训练与推理 |
-| `AgentDDS` | Agent | `source/AgentDDS/` | 独立 Rust Agent，集成 Codex 运行时与 Zenoh 接入层 |
-
-`AgentDDS` 是进程名称，通讯方案仍为 Zenoh。进程命名不改变既定职责与目录归属。
+VisionHyperAgentAPP 是唯一的产品级进程。程序内部采用单进程多线程和 MVVM 分层：
 
 ~~~text
-进程 1：VisionHyperAgentAPP
-Python + PySide6 + QML，只负责界面交互与展示
-        ↕ Zenoh
-进程 2：VisionHyperAgentCore
-Rust 业务核心，管理数据、任务与用户确认；内部承载训练和离线推理
-        ↕ Zenoh
-进程 3：AgentDDS
-Rust 程序：我们自己的 Zenoh 接入层与适配代码 + 未修改的 Codex 运行时
+VisionHyperAgentAPP
+├── QML View
+├── Python ViewModel / Qt 桥接层
+├── Rust ViewModel
+├── Rust Model
+│   ├── 预标注 / 标注 / 数据集
+│   ├── 预训练 / 训练 / 评估
+│   ├── 推理 / 模型 / 部署
+│   └── CodexAgent
+└── Rust Core
+    ├── 配置
+    ├── 日志
+    ├── 路径
+    ├── 错误
+    ├── 事件总线
+    └── 任务运行时
 ~~~
 
-Core 不嵌入 Codex；Agent 不并入 Core。训练属于 Core 内部模块，不再设独立 Training Worker 项目、服务或进程。内部并发按需要使用线程或异步任务，不把启动另一个程序称为进程内多线程。
+不再设置 VisionHyperAgentCore、AgentDDS、Training Worker 或推理服务进程。训练、推理、业务状态和 Agent 接入都在 APP 进程内的受控线程中执行。
 
-### 2.1 VisionHyperAgentCore（Rust）
+第三方运行时如果自身不可避免地创建辅助进程，必须在实施前明确验证和约束；产品架构不主动新增服务进程。
 
-VisionHyperAgentCore 是后台核心服务器和唯一业务事实来源：
+## 3. MVVM 分层
 
-- 管理数据集、标注版本、确认状态、训练任务、模型记录和部署状态；
-- 管理用户确认门槛，未确认数据不得进入训练；
-- 通过 Zenoh 请求 Agent 分析、追问和制定方案，维护业务任务与 Agent 会话的关联；
-- 对 Agent 暴露受控业务工具，校验请求并执行业务操作；
-- 编排预标注、预训练、标注、训练和离线部署用例；
-- 在内部训练模块执行预训练与正式训练，并登记其产物与指标；
-- 承载 Rust 生产推理路径；
-- 通过 Zenoh 对客户端暴露受控 API；
-- 管理配置、日志、运行记录和环境体检。
+### 3.1 View
 
-Core 不因桌面窗口关闭而丢失后台任务状态；Desktop 重连后恢复展示。
+View 使用 PySide6 / QML：
 
-Core 不依赖 Codex 的 Rust 库，也不维护 Agent 的内部推理上下文。Agent 返回的方案和工具请求不能直接替代 Core 的业务校验或用户确认。
+- 展示预标注、预标注规则确认、标注、预训练、训练、模型、推理和设置页面；
+- 承接输入、编辑、选择、确认和取消交互；
+- 只绑定 Python ViewModel 暴露的属性、方法和信号；
+- 不直接调用 Rust Model、CodexAgent、数据库或文件服务；
+- 保持亮色、渐变、磨砂和大圆角的既有视觉方向。
 
-### 2.2 VisionHyperAgentAPP（Python）
-
-VisionHyperAgentAPP 桌面客户端采用 **Python + PySide6 + QML**：
-
-- 展示预标注、预训练、标注、训练和离线部署页面；
-- 承接输入、编辑、选择、确认和取消操作；
-- 保留全局 Agent 聊天、页面草稿、窗口布局和界面偏好；
-- 通过 Zenoh 调用 Core；
-- 订阅任务状态、日志、指标和 Agent 消息。
-
-目录规格如下：
+目录：
 
 ~~~text
-source/VisionHyperAgentAPP/main.py       唯一应用入口
-source/VisionHyperAgentAPP/model/        Desktop 本地 UI 状态模型与 Core 状态投影
-source/VisionHyperAgentAPP/view/         QML 界面、组件、页面与资源
-source/VisionHyperAgentAPP/viewmodel/    QObject ViewModel，隔离 QML 与通讯层
+source/Python/view/
 ~~~
 
-Desktop 只连接 Core，不直接连接 Agent；聊天消息、流式回复和审批交互均经过 Core。Desktop 不直接读写数据集、标注文件、模型目录或训练配置，也不实现业务规则。按钮和聊天入口必须复用同一个 Core API。
+### 3.2 Python ViewModel
 
-界面保持亮色、绚彩渐变、半透明磨砂和大圆角风格，不改为灰白保守风格。
+Python ViewModel 是 Qt 桥接层，不是业务层：
 
-### 2.3 AgentDDS（Rust）
+- 提供 QObject、Property、Signal 和 Slot；
+- 注册或持有 QML 可见的界面状态；
+- 把 QML 命令转发给 Rust ViewModel；
+- 把 Rust 回调安全地转发到 Qt 主线程；
+- 不实现预标注、训练、推理、模型登记或 Agent 协议逻辑。
 
-AgentDDS 是我们自己的独立 Rust 可执行程序，内部集成 Codex 运行时并增加 Zenoh 接入层：
+目录：
 
-- 管理 Agent 会话、对话上下文、工具注册和技能加载；
-- 接收 Core 提交的消息和任务，回传流式回复、执行状态、工具请求和审批请求；
-- 处理会话取消、结束及异常，并向 Core 如实报告状态；
-- 通过 Zenoh 请求 Core 执行业务能力，不自行接管训练、推理、数据确认和模型登记；
-- Codex 作为固定版本的源码依赖保持原样，我们只编写自己的入口和适配代码；
-- 不采用“外壳进程再启动一个 Codex CLI 进程”来替代进程内集成。
+~~~text
+source/Python/viewmodel/
+~~~
 
-进程内接入是待验证的实现目标，不代表已经完成独立构建或运行验证。若现有接口不足，先说明限制并由用户决定，不擅自修改 Codex 源码或改变进程边界。
+### 3.3 Rust ViewModel
 
-### 2.4 Core 内部训练模块
+Rust ViewModel 是纯 Rust 的界面状态逻辑层：
 
-预训练和正式训练由 Core 内部模块执行，不再拆分 Training Worker：
+- 管理页面状态、表单状态、选中项、加载状态、错误展示状态；
+- 编排用户命令并调用 Rust Model；
+- 把 Model 与 Agent 事件整理为适合界面消费的状态；
+- 不依赖 Qt、PySide6、QML 或窗口控件。
 
-- 使用软件自行管理的 Python 3.13 / PyTorch / Ultralytics 环境，进程内接入方式与兼容性在具体实施时验证；
-- 在本机 NVIDIA GPU 上执行 YOLO 实例分割预训练和正式训练；
-- 由 Core 统一记录并对外发布进度、指标、日志、产物和失败原因；
-- 支持协作式取消。
+Rust 包位置：
 
-预训练模型是否足以辅助标注、训练是否有效、模型是否登记、哪次结果最佳，均由 Core 判断。无 NVIDIA GPU 时预训练和训练明确不可用，不做 CPU 兜底。
+~~~text
+source/Rust/core/
+~~~
 
-### 2.5 Core 内部离线推理
+### 3.4 Rust Model
 
-离线部署使用 Core 内部的 Rust 推理路径，不另设推理进程：
+Rust Model 是业务事实与用例层：
 
-- 加载导出模型；
-- 执行图片预处理、模型推理和实例分割后处理；
-- 返回实例类别与分割区域；
-- 不调用在线 Agent、不启动训练环境、不依赖互联网。
+- 预标注规则分析与确认状态；
+- 数据集、标注实例、版本和确认记录；
+- 预训练、训练、评估与取消；
+- 模型登记、比较、导出和部署状态；
+- 离线推理与实例分割后处理；
+- 调用 CodexAgent 获取 Agent 分析、追问和方案。
 
-模型能否部署以实际导出和推理验证结果为准，不以 Agent 文本回复为准。
+Agent 返回的文本不能替代业务校验和用户确认。未确认的数据不得进入训练。
 
-## 3. Zenoh 边界
+目录：
 
-Zenoh 是 Desktop ↔ Core、Core ↔ Agent 的进程间通讯方式，也是后续外部系统接入 Core 的统一方向。Desktop 不绕过 Core 直接访问 Agent。ZeroMQ 不再作为主通讯方案。
+~~~text
+source/Rust/model/
+└── codex_agent/        CodexAgent 子模块
+~~~
 
-| 链路 | 用途 |
+`model` 自身只是一个目录，不包含 `src`。每个业务子模块放在 `model/<模块名>/ ` 下；实现时再建立自己的 Rust 包。
+
+### 3.5 Rust Core
+
+Rust Core 是进程内共用基础层：
+
+- 配置加载与覆盖；
+- 结构化日志；
+- 安装目录、用户数据目录、缓存目录、日志目录和工作区路径解析；
+- 统一错误模型；
+- 事件总线；
+- 任务队列、取消、超时和线程生命周期管理。
+
+组件目录：
+
+~~~text
+source/Rust/basic/
+~~~
+
+`basic` 自身只是一个目录，不包含 `src`。配置、日志、路径、错误、事件、任务运行时等共用能力后续分别放入 `basic/<组件名>/ `。
+
+### 3.6 Python / Rust 绑定层
+
+Python ViewModel 与 Rust ViewModel 之间通过专用 Rust 绑定包连接：
+
+~~~text
+source/Python/pybind/
+~~~
+
+绑定层只做类型转换、回调转发和生命周期管理，不承载业务逻辑。
+
+## 4. CodexAgent
+
+CodexAgent 属于 Rust Model 层的基础设施适配器，以 Rust 库和子线程方式运行，不再是独立进程。
+
+职责：
+
+- 启动、停止和查询 Codex 连接状态；
+- 掉线检测、重启和重连；
+- 通过 WebSocket / JSON-RPC 调用 Codex App Server；
+- 管理 thread/start、thread/resume、thread/list、turn/start、turn/interrupt、skills/list 等白名单方法；
+- 接收 Codex 通知并转换为进程内事件；
+- 处理请求关联、超时和取消；
+- 将 Codex 的审批类反向请求交给业务层和用户确认流程。
+
+CodexAgent 不做：
+
+- 自研会话数据库；
+- 自研聊天引擎；
+- 解析 Codex rollout 文件作为管理入口；
+- 视觉业务规则判断；
+- 直接执行训练或推理。
+
+Rust 包位置：
+
+~~~text
+source/Rust/model/codex_agent/
+~~~
+
+详细边界见 docs/CodexAgent模块边界.md。
+
+## 5. 线程模型
+
+APP 进程内至少规划以下线程：
+
+| 线程 | 职责 |
 | --- | --- |
-| Desktop ↔ Core | 用户输入、业务请求、确认、任务状态、Agent 回复与审批展示 |
-| Core ↔ Agent | 会话交互、分析与方案请求、流式事件、取消、审批和受控业务工具调用 |
+| Qt 主线程 | QML 渲染、界面事件、ViewModel 属性更新 |
+| Rust ViewModel / 绑定回调线程 | 状态计算与 Qt 线程安全转发 |
+| CodexAgent 线程 | Codex WebSocket / JSON-RPC、重连和事件接收 |
+| 任务调度线程 | 业务任务队列、取消、超时和状态发布 |
+| 训练 / 推理工作线程 | 预训练、正式训练、评估和离线推理 |
 
-| 类型 | 用途 |
-| --- | --- |
-| 请求 / 响应 | 发起用例、查询状态、确认、取消、加载模型和执行识别 |
-| 事件流 | 推送任务状态、训练进度、指标、日志增量、Agent 消息和标注进度 |
-| 数据传输 | 图片预览、缩略图、标注轮廓或掩码等界面数据 |
+约束：
 
-协议要求：
+- Qt 主线程不做文件扫描、模型计算、网络等待或长时间业务处理；
+- 所有长任务必须可查询、可取消并有明确终态；
+- Rust 与 Python 之间的回调必须显式处理线程边界；
+- 子线程异常不能静默吞掉，必须进入统一错误和日志系统。
 
-- Core、Desktop 与 Agent 可能分别升级，需要协议版本和能力协商；
-- 请求携带可追踪的请求、业务任务和 Agent 会话关联信息；
-- 错误包含错误码、用户可读原因和建议动作；
-- 事件流处理重连、重复、乱序和任务结束；
-- Desktop 明确展示未连接、启动中、版本不兼容和后台错误；
-- Core 向 Desktop 如实报告 Agent 的不可用或中断状态，不把会话完成等同于训练成功或用户确认；
-- Agent 返回结果由 Core 校验对应任务状态和规则版本，迟到结果不能恢复已经失效的分析或确认状态；
-- 未授权图片、凭据、日志和运行环境不得发送给在线服务。
-
-主题命名、序列化格式、认证和外部接入协议由后续协议设计确定。
-
-## 4. 状态归属
+## 6. 状态归属
 
 | 状态 | 归属 |
 | --- | --- |
-| 页面草稿、聊天未发送输入、窗口布局、主题偏好 | Desktop |
-| 业务任务与 Agent 会话的关联、业务工具执行结果 | Rust Core |
-| Agent 会话、对话上下文、推理轮次和技能加载状态 | Rust Agent |
-| 预标注规则、分析结果、确认状态 | Rust Core |
-| 种子数据、预训练任务、辅助初标模型和评估记录 | Rust Core |
-| 图片索引、标注实例、数据集版本、确认记录 | Rust Core |
-| 训练任务、参数、指标、日志、取消状态 | Rust Core |
-| 候选模型、最佳模型、部署模型和元数据 | Rust Core |
+| QML 临时控件状态、草稿输入、窗口布局、主题偏好 | Python ViewModel / 本地界面配置 |
+| 页面展示状态、加载状态、错误展示状态 | Rust ViewModel |
+| 预标注规则、分析结果、确认状态 | Rust Model |
+| 数据集、标注实例、版本、确认记录 | Rust Model |
+| 预训练、训练、评估任务与指标 | Rust Model |
+| 候选模型、最佳模型、导出和部署状态 | Rust Model |
+| Codex 连接状态、thread / turn 执行状态 | CodexAgent |
+| 配置、日志、路径、统一错误、事件路由 | Rust Core |
 
-Agent 会话记录不是第二套业务事实来源。用户确认后的数据集版本不可被 Agent 擅自覆盖。后续修正应形成新版本或明确修订流程。
+业务事实只保存在 Rust Model 和其持久化存储中。QML 和 ViewModel 中的状态是投影，不能成为第二套业务事实来源。
 
-## 5. 核心流程
+## 7. 通讯边界
+
+单进程内部不使用 Zenoh：
+
+~~~text
+QML
+↔ Python ViewModel
+↔ Rust ViewModel
+↔ Rust Model / CodexAgent
+↔ Rust Core
+~~~
+
+CodexAgent 与 Codex App Server 之间使用 WebSocket / JSON-RPC。
+
+Zenoh 仅保留为后续外部节点、远程控制或分布式扩展的可选能力，当前不作为内部通讯依赖。
+
+## 8. 核心流程
 
 ### 预标注
 
 ~~~text
-Desktop 输入特征描述
-→ Zenoh 提交 Core
-→ Core 通过 Zenoh 请求 Agent 分析和追问
-→ Agent 通过 Zenoh 回传 Core
-→ Core 校验结果并转发 Desktop 展示
+QML 输入描述
+→ Python ViewModel
+→ Rust ViewModel
+→ Rust Model
+→ CodexAgent 发起分析和追问
+→ Rust Model 校验并登记分析结果
 → 用户确认规则
-→ Core 登记可用于批量标注的规则
+→ 规则可用于批量标注
 ~~~
 
-特征描述变化后，旧分析、旧确认和依赖旧规则的批量标注结果不能再被当作有效状态。
+描述变化后，旧分析、旧确认和依赖旧规则的批量结果失效。
 
 ### 预训练
 
 ~~~text
-Agent 直接预标注效果不足
-→ Core 选取或请求用户确认少量种子数据
-→ Core 内部训练模块使用种子数据训练辅助初标模型
-→ Core 评估并登记该模型
-→ 后续批量标注复用该辅助模型
+直接预标注效果不足
+→ 用户确认少量种子数据
+→ Rust Model 训练辅助初标模型
+→ 评估并登记
+→ 后续批量标注复用
 ~~~
-
-预训练是标注链路的兜底增强，不绕过用户确认，也不自动把辅助初标模型当作最终部署模型。效果是否不足、种子数据数量、训练参数和验收阈值由用户在具体实施时确认。
 
 ### 标注
 
 ~~~text
-Core 基于确认规则和可用辅助模型生成实例分割初标
-→ Desktop 展示并允许修改、删除、补充
-→ Core 保存业务数据
+Rust Model 基于确认规则和辅助模型生成实例分割初标
+→ QML 展示并允许修改、删除、补充
+→ Rust Model 保存实例区域
 → 用户确认数据集版本
-→ 版本成为训练前置条件
 ~~~
-
-复杂轮廓和掩码表达、编辑体验与质量门槛后续由用户确认。
 
 ### 训练
 
 ~~~text
-Desktop 发起训练
-→ Core 校验确认版本、GPU 和运行环境
-→ Core 通过 Zenoh 请求 Agent 制定训练与调参方案
-→ Agent 将方案返回 Core
-→ Core 校验方案与预算，在内部训练模块执行训练
-→ Core 记录指标与产物并向 Desktop 发布进度
-→ Core 登记、比较和选择候选模型
+QML 发起训练
+→ Rust Model 校验确认版本、GPU 和环境
+→ CodexAgent 请求训练与调参方案
+→ Rust Model 校验方案并执行训练
+→ 记录进度、指标和产物
+→ 登记候选模型并选择最佳模型
 ~~~
-
-单 GPU 训练由 Core 串行调度或明确受控并发。失败、取消和环境不可用必须保持状态真实。
 
 ### 离线部署
 
 ~~~text
-Core 加载已验证部署模型
-→ Desktop 或后续外部入口提交图片
-→ Rust 推理路径执行识别
-→ Core 返回实例类别与分割区域
+Rust Model 加载导出模型
+→ 推理线程执行预处理、模型推理和实例分割后处理
+→ ViewModel 展示类别与分割区域
 ~~~
 
-## 6. AgentDDS 边界
+离线推理不初始化在线 Agent，不依赖训练环境。
 
-独立 AgentDDS 程序复用开源 Codex 的运行时，并纳入 Ultralytics 官方 YOLO 技能；不另写同类 Agent 引擎，不擅自引入产品范围之外的模型方案。
-
-Codex 子模块 `source/depends/codex/` 保持原样：不修改源码、构建清单或锁文件，不打补丁。我们的程序入口、Zenoh 接入和适配代码放在 `source/AgentDDS/`。接入只使用现有接口；接口或构建不兼容时先报告，不以修改 Codex 为默认解决方案。
-
-职责边界如下：
-
-- Desktop 经 Core 转发用户消息并展示回复，不持有 Agent 的业务控制权；
-- Agent 维护会话上下文、工具注册和技能加载，Core 维护会话与业务任务的关联；
-- Agent 的业务工具经 Zenoh 调用 Core 暴露的应用能力，由 Core 校验和执行；
-- 工具审批请求与业务确认状态分别处理，Agent 对话中的文本答复不能代替 Core 的确认记录；
-- Agent 不能绕过用户确认、数据版本、训练预算和模型登记规则；
-- Agent 不直接执行训练或接管生产推理，离线推理不依赖 Agent 启动或在线；
-- 只允许把任务图片发送给用户配置的在线服务，不发送无关文件、凭据或运行环境。
-
-## 7. 环境与平台
-
-- 目标平台：Linux、Windows；
-- 训练硬件：本机 NVIDIA GPU，不设型号白名单，但按软件版本验证兼容性；
-- 软件自行管理私有运行环境，不要求用户配置 Conda 或系统 Python；
-- 训练计算留在本机；
-- 离线识别不依赖互联网；
-- 依赖版本、许可证和打包方式在具体实施前由用户确认。
-
-三进程是已确认的架构约束，不是已经验证的运行事实。实施前需验证未修改 Codex 的独立引用与进程内运行、Core 内 Python 训练接入，以及离线推理不初始化 Agent 或训练环境的路径。工具执行、训练数据加载等可能产生的额外进程必须检查和约束；若无法满足三进程要求，先说明并由用户决定，不擅自新增进程。
-
-## 8. 仓库归属方向
+## 9. 目录结构
 
 ~~~text
-source/VisionHyperAgentCore/  VisionHyperAgentCore，内部包含训练与离线推理模块
-source/AgentDDS/              AgentDDS，Zenoh 接入与未修改 Codex 的适配
-source/VisionHyperAgentAPP/   VisionHyperAgentAPP，Python PySide6/QML 桌面客户端
-source/protocol/  Desktop ↔ Core、Core ↔ Agent 的 Zenoh 协议约定
-source/depends/   固定版本的上游源码子模块
-docs/             需求、架构和已确认设计
+source/
+├── Python/
+│   ├── main.py                 应用唯一入口
+│   ├── view/                   QML View
+│   ├── viewmodel/              Python ViewModel / Qt 桥接层
+│   └── pybind/                 Python / Rust 绑定
+├── Rust/
+│   ├── Cargo.toml              Rust workspace
+│   ├── basic/                  共用基础组件集合
+│   ├── model/                  业务模型与用例，包含 CodexAgent
+│   └── core/                   纯 Rust ViewModel
+source/Rust/depends/            固定版本上游子模块
 ~~~
 
-不再规划独立的 `training-worker/` 目录。目录内具体模块、文件和接口由用户指挥具体实施时再建立。本文只锁定归属方向，不授权一次性搭建全部工程。
+已取消的目录：
 
-## 9. 依赖顺序
+~~~text
+source/VisionHyperAgentCore/
+source/AgentDDS/
+source/protocol/
+~~~
 
-高层依赖顺序如下，不表示自动执行步骤：
+## 10. 打包与路径
 
-1. Desktop、Core、Agent 的三进程边界、Zenoh 协议语义和错误模型；
-2. Core 内业务状态、确认门槛和持久化边界；
-3. 未修改 Codex 的独立 Agent 封装、会话与受控业务工具接入；
-4. 批量标注业务能力；
-5. Core 内部训练接入、预训练与 GPU 训练链路；
-6. 批量标注对辅助初标模型的复用；
-7. 模型导出、登记和 Rust 离线推理。
+配置和代码不硬编码开发机绝对路径。启动时由 Rust Core 解析：
 
-每一步的具体拆分、测试范围和完成标准由用户另行指挥。
+~~~text
+install_home
+data_home
+cache_home
+log_home
+workspace_root
+~~~
 
-## 10. 非目标
+安装目录保存只读资源；用户数据、Codex Home、日志、数据库和用户技能放系统用户数据目录；项目文件放用户选择的工作区。是否提供便携版由后续打包方案确认。
 
-- 不做 Desktop / Core / Agent 之外的通用微服务拆分；
-- 不把 Agent 并入 Core，不额外建立独立 Training Worker 或推理服务；
-- 不修改 Codex 子模块，不另写同类 Agent 引擎；
-- 不把 ZeroMQ 作为并列主通讯协议；
-- 不使用 Electron、Flutter 或浏览器原型替代 PySide6/QML；
-- 不让 Desktop 或 Agent 成为第二套业务事实来源；
+## 11. 实施顺序
+
+高层顺序如下，具体实施仍由用户指挥：
+
+1. Rust workspace 与 Core 基础类型；
+2. Python / Rust 绑定和线程安全回调；
+3. CodexAgent 生命周期、状态与重连；
+4. Rust ViewModel 主窗口状态；
+5. 预标注规则用例；
+6. 数据集与标注模型；
+7. 预训练与训练模块；
+8. 推理、模型登记和离线部署；
+9. 打包与路径解析验证。
+
+## 12. 非目标
+
+- 不再拆分 Desktop / Core / AgentDDS 三个产品进程；
+- 不修改 Codex 子模块源码；
+- 不自研替代 Codex 的 Agent 引擎；
+- 不让 QML 直接调用 Codex；
+- 不把 Agent 回复当作业务确认；
 - 不做云端训练或 CPU 训练兜底；
 - 不提前建设通用插件系统；
-- 不未经确认自动扩展相机、外部通信、模型库或发布打包。
-
-## 11. 与历史需求的关系
-
-本文取代历史文档中与当前三进程结构冲突的内容：VisionHyperAgentAPP 为 Python + PySide6/QML 独立进程，VisionHyperAgentCore 为负责业务、训练和推理的独立 Rust 进程，AgentDDS 为集成未修改 Codex 运行时与 Zenoh 接入层的独立 Rust 进程。两条进程间链路均使用 Zenoh；原先 Core 内承载 Codex、独立 Training Worker 等方向不再适用。
-
-五个核心产品能力、本机 GPU 训练、私有运行环境、复用 Codex 引擎、Ultralytics 官方技能、用户确认门槛和 UI 视觉方向保持不变。
+- 不未经确认扩展相机、外部通信、模型库或发布打包。

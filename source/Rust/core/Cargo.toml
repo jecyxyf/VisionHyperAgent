@@ -1,0 +1,8 @@
+[package]
+name = "vha-viewmodel"
+description = "Qt-independent presentation state orchestration"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]

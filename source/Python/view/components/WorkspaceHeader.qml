@@ -10,6 +10,7 @@ Rectangle {
     default property alias actions: actionsRow.data
 
     height: 51
+    color: "transparent"
 
     RowLayout {
         anchors.left: parent.left
@@ -18,19 +19,29 @@ Rectangle {
         height: 34
         spacing: 8
 
-        ThemedIcon {
-            Layout.preferredWidth: 18
-            Layout.preferredHeight: 18
-            source: root.icon
-            color: Theme.accent
+        Rectangle {
+            Layout.preferredWidth: 30
+            Layout.preferredHeight: 30
+            radius: 10
+            color: Theme.accentSurface
+            border.color: Theme.glassEdge
+            border.width: 1
+
+            ThemedIcon {
+                anchors.centerIn: parent
+                width: 18
+                height: 18
+                source: root.icon
+                color: Theme.accent
+            }
         }
 
         Text {
             Layout.fillWidth: true
             Layout.alignment: Qt.AlignVCenter
             text: root.title
-            color: Theme.text
-            font.pixelSize: Theme.rem * 1.1
+            color: Theme.headerInk
+            font.pixelSize: Theme.rem * 1.2
             font.weight: Font.DemiBold
             verticalAlignment: Text.AlignVCenter
             elide: Text.ElideRight

@@ -1,12 +1,12 @@
-[submodule "source/depends/zenoh"]
-	path = source/depends/zenoh
+[submodule "source/Rust/depends/zenoh"]
+	path = source/Rust/depends/zenoh
 	url = https://github.com/eclipse-zenoh/zenoh.git
-[submodule "source/depends/codex"]
-	path = source/depends/codex
+[submodule "source/Rust/depends/codex"]
+	path = source/Rust/depends/codex
 	url = https://github.com/openai/codex.git
-[submodule "source/depends/ultralytics"]
-	path = source/depends/ultralytics
+[submodule "source/Rust/depends/ultralytics"]
+	path = source/Rust/depends/ultralytics
 	url = https://github.com/ultralytics/ultralytics.git
-[submodule "source/depends/goose"]
-	path = source/depends/goose
+[submodule "source/Rust/depends/goose"]
+	path = source/Rust/depends/goose
 	url = https://github.com/block/goose.git
