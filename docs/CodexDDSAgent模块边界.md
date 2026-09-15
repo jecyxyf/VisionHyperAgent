@@ -762,6 +762,7 @@ Agent 状态快照包含：
 | --- | --- |
 | 名称格式错误 | invalid_name |
 | 服务不存在 | service_not_found |
+| 服务已存在 | service_exists |
 | Agent 不存在 | agent_not_found |
 | Agent 已存在 | agent_exists |
 | Agent 心跳活跃 | agent_busy |
