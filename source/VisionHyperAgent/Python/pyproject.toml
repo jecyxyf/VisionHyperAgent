@@ -1,14 +1,14 @@
 [project]
-name = "vision-hyper-agent-app"
+name = "vision-hyper-agent"
 version = "0.1.0"
-description = "VisionHyperAgentAPP Python desktop client"
+description = "VisionHyperAgent Python desktop client"
 requires-python = ">=3.13,<3.14"
 dependencies = [
     "PySide6>=6.8,<7",
 ]
 
 [project.scripts]
-VisionHyperAgentAPP = "main:main"
+VisionHyperAgent = "main:main"
 
 [build-system]
 requires = ["hatchling"]

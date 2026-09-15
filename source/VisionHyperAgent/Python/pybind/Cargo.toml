@@ -6,4 +6,4 @@ edition = "2021"
 license = "Proprietary"
 
 [dependencies]
-vha-viewmodel = { path = "../../Rust/core" }
+vha-viewmodel = { path = "../../Rust/viewmodel" }

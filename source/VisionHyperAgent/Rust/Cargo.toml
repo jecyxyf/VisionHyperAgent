@@ -1,8 +1,7 @@
 [workspace]
 resolver = "2"
 members = [
-    "core",
-    "model/codex_agent",
+    "viewmodel",
 ]
 
 [workspace.package]
