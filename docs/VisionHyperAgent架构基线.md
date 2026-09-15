@@ -72,6 +72,15 @@ VisionHyperAgentAPP 桌面客户端采用 **Python + PySide6 + QML**：
 - 通过 Zenoh 调用 Core；
 - 订阅任务状态、日志、指标和 Agent 消息。
 
+目录规格如下：
+
+~~~text
+source/VisionHyperAgentAPP/main.py       唯一应用入口
+source/VisionHyperAgentAPP/model/        Desktop 本地 UI 状态模型与 Core 状态投影
+source/VisionHyperAgentAPP/view/         QML 界面、组件、页面与资源
+source/VisionHyperAgentAPP/viewmodel/    QObject ViewModel，隔离 QML 与通讯层
+~~~
+
 Desktop 只连接 Core，不直接连接 Agent；聊天消息、流式回复和审批交互均经过 Core。Desktop 不直接读写数据集、标注文件、模型目录或训练配置，也不实现业务规则。按钮和聊天入口必须复用同一个 Core API。
 
 界面保持亮色、绚彩渐变、半透明磨砂和大圆角风格，不改为灰白保守风格。

@@ -1,0 +1,4 @@
+singleton Theme 1.0 Theme.qml
+singleton UiHints 1.0 UiHints.qml
+FeatureDraft 1.0 FeatureDraft.qml
+TrainingDraft 1.0 TrainingDraft.qml

@@ -1,0 +1,12 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1600" height="100" viewBox="0 0 1600 100" fill="none">
+  <defs>
+    <linearGradient id="frost" x1="650" y1="0" x2="650" y2="100" gradientUnits="userSpaceOnUse"><stop stop-color="#ffffff" stop-opacity=".8"/><stop offset=".5" stop-color="#ffffff" stop-opacity=".05"/><stop offset="1" stop-color="#ffffff" stop-opacity=".58"/></linearGradient>
+    <linearGradient id="prism" x1="920" y1="0" x2="1500" y2="100" gradientUnits="userSpaceOnUse"><stop stop-color="#b4b0ff" stop-opacity="0"/><stop offset=".25" stop-color="#e597f0" stop-opacity=".27"/><stop offset=".5" stop-color="#ffc6d1" stop-opacity=".42"/><stop offset=".72" stop-color="#faf4ff" stop-opacity=".78"/><stop offset="1" stop-color="#78e6f1" stop-opacity=".28"/></linearGradient>
+    <linearGradient id="edge" x1="0" x2="1600" y1="0" y2="0" gradientUnits="userSpaceOnUse"><stop stop-color="#ffffff"/><stop offset=".4" stop-color="#edc8ff"/><stop offset=".7" stop-color="#ffffff"/><stop offset="1" stop-color="#cffbf5"/></linearGradient>
+  </defs>
+  <rect width="1600" height="100" fill="url(#frost)"/>
+  <path d="M720 0h880v100H960z" fill="url(#prism)"/>
+  <path d="M1000 0h90l230 100h-90z" fill="#ffffff" fill-opacity=".17"/>
+  <path d="M1190 0l220 100" stroke="#ffffff" stroke-opacity=".65"/>
+  <path d="M0 1h1600M0 99h1600" stroke="url(#edge)" stroke-opacity=".85"/>
+</svg>
