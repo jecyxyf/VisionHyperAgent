@@ -1,5 +1,6 @@
 use std::{
     collections::VecDeque,
+    io::Write,
     path::{Path, PathBuf},
     time::Duration,
 };
@@ -105,15 +106,58 @@ pub struct AgentRuntime {
     log_path: PathBuf,
 }
 
+struct RuntimeLogger {
+    path: PathBuf,
+}
+
+impl RuntimeLogger {
+    fn new(log_path: &Path) -> Self {
+        Self {
+            path: log_path
+                .parent()
+                .unwrap_or_else(|| Path::new("."))
+                .join("codex-dds-agent.log"),
+        }
+    }
+
+    fn write(&self, event: &str, fields: &[(&str, &dyn std::fmt::Display)]) {
+        if let Some(parent) = self.path.parent() {
+            if std::fs::create_dir_all(parent).is_err() {
+                return;
+            }
+        }
+        let Ok(mut file) = std::fs::OpenOptions::new()
+            .create(true)
+            .append(true)
+            .open(&self.path)
+        else {
+            return;
+        };
+        let timestamp = chrono::Utc::now().to_rfc3339();
+        let fields = fields
+            .iter()
+            .map(|(key, value)| format!("{key}={value}"))
+            .collect::<Vec<_>>()
+            .join(" ");
+        let _ = writeln!(file, "{timestamp} event={event} {fields}");
+    }
+}
+
 impl AgentRuntime {
     pub async fn start(
         binary: &Path,
         codex_home: &Path,
         log_path: &Path,
     ) -> Result<(Self, mpsc::Receiver<RuntimeEvent>), Error> {
-        let (process, websocket_url) =
+        let (mut process, websocket_url) =
             ProcessSupervisor::start(binary, codex_home, log_path).await?;
-        let websocket = connect_and_handshake(&websocket_url).await?;
+        let websocket = match connect_and_handshake(&websocket_url).await {
+            Ok(websocket) => websocket,
+            Err(error) => {
+                let _ = process.stop().await;
+                return Err(error);
+            }
+        };
         let restart = Some(RestartPaths {
             binary: binary.to_path_buf(),
             codex_home: codex_home.to_path_buf(),
@@ -160,12 +204,14 @@ impl AgentRuntime {
     ) -> Result<(Self, mpsc::Receiver<RuntimeEvent>), Error> {
         let (command_tx, command_rx) = mpsc::unbounded_channel();
         let (event_tx, event_rx) = mpsc::channel(4096);
+        let worker_log_path = log_path.to_path_buf();
         tokio::spawn(runtime_worker(
             process,
             websocket,
             runtime_id.clone(),
             command_rx,
             event_tx,
+            worker_log_path,
             restart,
         ));
         Ok((
@@ -220,8 +266,10 @@ async fn runtime_worker(
     runtime_id: String,
     mut commands: mpsc::UnboundedReceiver<RuntimeCommand>,
     events: mpsc::Sender<RuntimeEvent>,
+    log_path: PathBuf,
     restart: Option<RestartPaths>,
 ) {
+    let logger = RuntimeLogger::new(&log_path);
     let mut rpc_queue: VecDeque<PendingRpc> = VecDeque::new();
     let mut active_rpc: Option<PendingRpc> = None;
     let mut reverse_queue: VecDeque<PendingReverse> = VecDeque::new();
@@ -242,6 +290,7 @@ async fn runtime_worker(
         None,
     )
     .await;
+    logger.write("runtime_started", &[("runtime_id", &runtime_id)]);
 
     loop {
         if websocket.is_some()
@@ -257,7 +306,13 @@ async fn runtime_worker(
                 let Some(command) = command else { break };
                 match command {
                     RuntimeCommand::Stop { reply } => {
-                        fail_pending_rpcs(&mut active_rpc, &mut rpc_queue, "agent_stopped", "agent runtime stopped");
+                        fail_pending_rpcs(
+                            &mut active_rpc,
+                            &mut rpc_queue,
+                            "agent_stopped",
+                            "agent runtime stopped",
+                            &logger,
+                        );
                         fail_reverse(&mut reverse_current, &mut reverse_queue, "agent_stopped", "agent runtime stopped", &mut websocket).await;
                         stop_ack = Some(reply);
                         break;
@@ -323,6 +378,7 @@ async fn runtime_worker(
                 handle_server_message(
                     value,
                     &events,
+                    &logger,
                     &mut websocket,
                     &mut active_rpc,
                     &mut rpc_queue,
@@ -365,6 +421,7 @@ async fn runtime_worker(
             restart.as_ref(),
             &mut next_recovery,
             &mut failure_count,
+            &logger,
         )
         .await;
         dispatch_reverse(
@@ -395,11 +452,20 @@ async fn runtime_worker(
     }
 
     if fatal_error.is_some() {
+        logger.write(
+            "runtime_fatal",
+            &[
+                ("runtime_id", &runtime_id),
+                ("failure_count", &failure_count),
+                ("error", &fatal_error.as_deref().unwrap_or_default()),
+            ],
+        );
         fail_pending_rpcs(
             &mut active_rpc,
             &mut rpc_queue,
             "process_start_failed",
             "codex-app-server could not be recovered",
+            &logger,
         );
         fail_reverse(
             &mut reverse_current,
@@ -414,6 +480,14 @@ async fn runtime_worker(
         let _ = stream.close(None).await;
     }
     stop_process(process).await;
+    logger.write(
+        "runtime_stopped",
+        &[
+            ("runtime_id", &runtime_id),
+            ("failure_count", &failure_count),
+            ("error", &fatal_error.as_deref().unwrap_or_default()),
+        ],
+    );
     let _ = events
         .send(RuntimeEvent::Stopped {
             runtime_id: runtime_id.clone(),
@@ -439,6 +513,7 @@ async fn runtime_worker(
 async fn handle_server_message(
     value: Value,
     events: &mpsc::Sender<RuntimeEvent>,
+    logger: &RuntimeLogger,
     websocket: &mut Option<CodexWebSocket>,
     active_rpc: &mut Option<PendingRpc>,
     rpc_queue: &mut VecDeque<PendingRpc>,
@@ -491,6 +566,7 @@ async fn handle_server_message(
                     rpc_queue,
                     "internal_error",
                     "runtime event receiver closed",
+                    logger,
                 );
             }
         }
@@ -505,9 +581,8 @@ async fn handle_server_message(
         return;
     }
     if let Some(pending) = active_rpc.take() {
-        let _ = pending
-            .reply
-            .send(response_from_codex(pending.request_id, value));
+        let request_id = pending.request_id.clone();
+        send_rpc_reply(pending, response_from_codex(request_id, value), logger);
     }
 }
 
@@ -519,6 +594,7 @@ async fn dispatch_rpc(
     restart: Option<&RestartPaths>,
     next_recovery: &mut Option<Instant>,
     failure_count: &mut usize,
+    logger: &RuntimeLogger,
 ) {
     if active_rpc.is_some() || websocket.is_none() {
         return;
@@ -541,6 +617,14 @@ async fn dispatch_rpc(
         .is_ok()
     {
         *active_rpc = Some(pending);
+        let pending = active_rpc.as_ref().unwrap();
+        logger.write(
+            "rpc_dispatched",
+            &[
+                ("request_id", &pending.request_id),
+                ("method", &pending.method),
+            ],
+        );
     } else {
         rpc_queue.push_front(pending);
         *websocket = None;
@@ -637,14 +721,46 @@ async fn reverse_response(
 }
 
 async fn recover(restart: &RestartPaths) -> Result<(ManagedProcess, CodexWebSocket), String> {
-    let (process, url) =
+    let (mut process, url) =
         ProcessSupervisor::start(&restart.binary, &restart.codex_home, &restart.log_path)
             .await
             .map_err(|error| error.to_string())?;
-    let websocket = connect_and_handshake(&url)
-        .await
-        .map_err(|error| error.to_string())?;
+    let websocket = match connect_and_handshake(&url).await {
+        Ok(websocket) => websocket,
+        Err(error) => {
+            let _ = process.stop().await;
+            return Err(error.to_string());
+        }
+    };
     Ok((process, websocket))
+}
+
+fn send_rpc_reply(pending: PendingRpc, response: RpcResponse, logger: &RuntimeLogger) {
+    let request_id = pending.request_id.clone();
+    let method = pending.method.clone();
+    let ok = response.ok;
+    let error_code = response
+        .error
+        .as_ref()
+        .map(|error| error.code.clone())
+        .unwrap_or_else(|| "none".to_string());
+    let delivered = pending.reply.send(response).is_ok();
+    logger.write(
+        "rpc_completed",
+        &[
+            ("request_id", &request_id),
+            ("method", &method),
+            ("delivered", &delivered),
+            ("ok", &ok),
+            ("error_code", &error_code),
+        ],
+    );
+    if !delivered {
+        logger.write(
+            "rpc_reply_dropped",
+            &[("request_id", &request_id), ("method", &method)],
+        );
+    }
 }
 
 async fn stop_process(process: Option<ManagedProcess>) -> Option<ManagedProcess> {
@@ -691,18 +807,38 @@ fn fail_pending_rpcs(
     rpc_queue: &mut VecDeque<PendingRpc>,
     code: &'static str,
     message: &str,
+    logger: &RuntimeLogger,
 ) {
     if let Some(pending) = active_rpc.take() {
-        let _ = pending.reply.send(RpcResponse::failure(
-            pending.request_id.clone(),
-            RpcError::new(code, message),
-        ));
+        send_failure_reply(pending, RpcError::new(code, message), logger);
     }
     for pending in rpc_queue.drain(..) {
-        let _ = pending.reply.send(RpcResponse::failure(
-            pending.request_id.clone(),
-            RpcError::new(code, message),
-        ));
+        send_failure_reply(pending, RpcError::new(code, message), logger);
+    }
+}
+
+fn send_failure_reply(pending: PendingRpc, error: RpcError, logger: &RuntimeLogger) {
+    let request_id = pending.request_id.clone();
+    let method = pending.method.clone();
+    let error_code = error.code.clone();
+    let delivered = pending
+        .reply
+        .send(RpcResponse::failure(request_id.clone(), error))
+        .is_ok();
+    logger.write(
+        "rpc_failed",
+        &[
+            ("request_id", &request_id),
+            ("method", &method),
+            ("delivered", &delivered),
+            ("error_code", &error_code),
+        ],
+    );
+    if !delivered {
+        logger.write(
+            "rpc_reply_dropped",
+            &[("request_id", &request_id), ("method", &method)],
+        );
     }
 }
 

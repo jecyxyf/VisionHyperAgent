@@ -11,10 +11,24 @@ pub async fn run() -> Result<(), Box<dyn std::error::Error>> {
     let address = listener.local_addr()?;
     writeln!(std::io::stderr(), "mock listening ws://{address}")?;
     std::io::stderr().flush()?;
+    if let Some(path) = value_path("--pid-file") {
+        std::fs::write(&path, std::process::id().to_string())?;
+    }
 
     let (stream, _) = listener.accept().await?;
     let mut websocket = tokio_tungstenite::accept_async(stream).await?;
     let initialize = read_json(&mut websocket).await?;
+    if flag("--reject-initialize") {
+        send_json(
+            &mut websocket,
+            json!({
+                "id": initialize.get("id").cloned().unwrap_or_else(|| json!("initialize")),
+                "error": {"code": "mock_initialize_rejected", "message": "mock rejected initialize"}
+            }),
+        )
+        .await?;
+        return Ok(());
+    }
     send_json(
         &mut websocket,
         json!({

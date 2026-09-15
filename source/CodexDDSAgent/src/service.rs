@@ -630,10 +630,23 @@ async fn conflicting_service(
 }
 
 fn service_loses(state: &RuntimeState, competitor: &ServiceRecord) -> bool {
-    match state.created_at.cmp(&competitor.created_at) {
+    match compare_created_at(&state.created_at, &competitor.created_at) {
         std::cmp::Ordering::Less => false,
         std::cmp::Ordering::Greater => true,
         std::cmp::Ordering::Equal => state.conflict_id > competitor.conflict_id,
+    }
+}
+
+fn compare_created_at(left: &str, right: &str) -> std::cmp::Ordering {
+    let left_time =
+        chrono::DateTime::parse_from_rfc3339(left).map(|value| value.with_timezone(&chrono::Utc));
+    let right_time =
+        chrono::DateTime::parse_from_rfc3339(right).map(|value| value.with_timezone(&chrono::Utc));
+    match (left_time, right_time) {
+        (Ok(left), Ok(right)) => left.cmp(&right),
+        (Err(_), Err(_)) => left.cmp(right),
+        (Ok(_), Err(_)) => std::cmp::Ordering::Less,
+        (Err(_), Ok(_)) => std::cmp::Ordering::Greater,
     }
 }
 
@@ -691,5 +704,17 @@ mod tests {
     fn builds_ipv4_and_ipv6_endpoints() {
         assert_eq!(listen_endpoint("0.0.0.0", 17600), "tcp/0.0.0.0:17600");
         assert_eq!(listen_endpoint("::", 17600), "tcp/[::]:17600");
+    }
+
+    #[test]
+    fn compares_rfc3339_precision_and_timezones() {
+        assert_eq!(
+            compare_created_at("2026-01-01T00:00:00Z", "2026-01-01T00:00:00.1Z"),
+            std::cmp::Ordering::Less
+        );
+        assert_eq!(
+            compare_created_at("2026-01-01T08:00:00+08:00", "2026-01-01T00:00:00Z"),
+            std::cmp::Ordering::Equal
+        );
     }
 }

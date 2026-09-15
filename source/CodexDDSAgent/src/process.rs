@@ -38,6 +38,7 @@ impl ProcessSupervisor {
             .stdin(Stdio::null())
             .stdout(Stdio::null())
             .stderr(Stdio::piped());
+        command.kill_on_drop(true);
         let mut child = command.spawn().map_err(|err| {
             Error::Rpc(crate::error::RpcError::new(
                 "process_start_failed",

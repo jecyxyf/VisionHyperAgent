@@ -244,3 +244,75 @@ async fn crashed_process_is_restarted_and_handshakes_again() {
     assert!(crash_marker.exists());
     runtime.stop().await.unwrap();
 }
+
+#[cfg(unix)]
+#[tokio::test]
+async fn failed_handshake_stops_the_spawned_codex_process() {
+    let root = tempfile::tempdir().unwrap();
+    let pid_file = root.path().join("codex.pid");
+    let pid = pid_file.to_string_lossy().into_owned();
+    let arguments = vec![
+        "--pid-file".to_string(),
+        pid,
+        "--reject-initialize".to_string(),
+    ];
+    let argument_refs = arguments.iter().map(String::as_str).collect::<Vec<_>>();
+    let binary = make_mock_binary(&root, &argument_refs);
+
+    let result = AgentRuntime::start(
+        &binary,
+        root.path(),
+        &root.path().join("codex-app-server.log"),
+    )
+    .await;
+
+    let error = result.err().expect("rejected initialize must fail");
+    assert!(error.to_string().contains("initialize failed"), "{error}");
+    let pid: i32 = std::fs::read_to_string(&pid_file)
+        .unwrap()
+        .trim()
+        .parse()
+        .unwrap();
+    let deadline = std::time::Instant::now() + Duration::from_secs(2);
+    while std::path::Path::new(&format!("/proc/{pid}")).exists()
+        && std::time::Instant::now() < deadline
+    {
+        tokio::time::sleep(Duration::from_millis(20)).await;
+    }
+    assert!(
+        !std::path::Path::new(&format!("/proc/{pid}")).exists(),
+        "codex process was not stopped after handshake failure"
+    );
+}
+
+#[tokio::test]
+async fn dropped_rpc_reply_is_logged_without_params() {
+    let root = tempfile::tempdir().unwrap();
+    let (runtime, _events) = start_mock(&["--delay-ms", "50"], &root).await;
+    let (reply_tx, reply_rx) = oneshot::channel();
+    runtime
+        .command_sender()
+        .send(RuntimeCommand::Rpc {
+            request_id: "dropped-reply".into(),
+            method: "account/usage/read".into(),
+            params: json!({"secret": "must-not-be-logged"}),
+            reply: reply_tx,
+        })
+        .unwrap();
+    drop(reply_rx);
+
+    let log_path = root.path().join("codex-dds-agent.log");
+    let deadline = std::time::Instant::now() + Duration::from_secs(2);
+    let log = loop {
+        let log = std::fs::read_to_string(&log_path).unwrap_or_default();
+        if log.contains("event=rpc_reply_dropped") || std::time::Instant::now() >= deadline {
+            break log;
+        }
+        tokio::time::sleep(Duration::from_millis(20)).await;
+    };
+
+    assert!(log.contains("request_id=dropped-reply"), "{log}");
+    assert!(log.contains("method=account/usage/read"), "{log}");
+    assert!(!log.contains("must-not-be-logged"), "{log}");
+    runtime.stop().await.unwrap();
+}
