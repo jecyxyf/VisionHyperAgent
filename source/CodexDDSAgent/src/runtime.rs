@@ -93,7 +93,19 @@ impl AgentRuntime {
         let (process, websocket_url) =
             ProcessSupervisor::start(binary, codex_home, log_path).await?;
         let websocket = connect_and_handshake(&websocket_url).await?;
-        Self::spawn_worker(Some(process), Some(websocket), binary, codex_home, log_path)
+        let restart = Some(RestartPaths {
+            binary: binary.to_path_buf(),
+            codex_home: codex_home.to_path_buf(),
+            log_path: log_path.to_path_buf(),
+        });
+        Self::spawn_worker(
+            Some(process),
+            Some(websocket),
+            binary,
+            codex_home,
+            log_path,
+            restart,
+        )
     }
 
     pub async fn connect(
@@ -103,7 +115,7 @@ impl AgentRuntime {
         let websocket = connect_and_handshake(websocket_url).await?;
         let binary = PathBuf::from("/nonexistent/codex-app-server");
         let codex_home = PathBuf::from("/nonexistent/codex-home");
-        Self::spawn_worker(None, Some(websocket), &binary, &codex_home, log_path)
+        Self::spawn_worker(None, Some(websocket), &binary, &codex_home, log_path, None)
     }
 
     fn spawn_worker(
@@ -112,20 +124,12 @@ impl AgentRuntime {
         binary: &Path,
         codex_home: &Path,
         log_path: &Path,
+        restart: Option<RestartPaths>,
     ) -> Result<(Self, mpsc::Receiver<RuntimeEvent>), Error> {
         let (command_tx, command_rx) = mpsc::channel(1024);
         let (event_tx, event_rx) = mpsc::channel(4096);
-        let restart = RestartPaths {
-            binary: binary.to_path_buf(),
-            codex_home: codex_home.to_path_buf(),
-            log_path: log_path.to_path_buf(),
-        };
         tokio::spawn(runtime_worker(
-            process,
-            websocket,
-            command_rx,
-            event_tx,
-            Some(restart),
+            process, websocket, command_rx, event_tx, restart,
         ));
         Ok((
             Self {
@@ -385,26 +389,7 @@ async fn handle_server_message(
                 params: params.clone(),
                 deadline: Instant::now() + REVERSE_REQUEST_TIMEOUT,
             };
-            let event = RuntimeEvent::ReverseRequest {
-                reverse_id: pending.reverse_id.clone(),
-                method: pending.method.clone(),
-                params,
-            };
-            if events.send(event).await.is_ok() {
-                if reverse_current.is_some() {
-                    reverse_queue.push_back(pending);
-                } else {
-                    *reverse_current = Some(pending);
-                }
-            } else {
-                send_reverse_error(
-                    pending.original_id,
-                    "internal_error",
-                    "runtime event receiver closed",
-                    websocket,
-                )
-                .await;
-            }
+            reverse_queue.push_back(pending);
         } else if protocol::is_server_notification_method(method) {
             let event = RuntimeEvent::Notification {
                 event_id: Uuid::new_v4().to_string(),
