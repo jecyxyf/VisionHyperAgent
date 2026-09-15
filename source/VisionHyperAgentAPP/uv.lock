@@ -19,7 +19,7 @@ wheels = [
 ]
 
 [[package]]
-name = "vision-hyper-agent-desktop"
+name = "vision-hyper-agent-app"
 version = "0.1.0"
 source = { virtual = "." }
 dependencies = [
