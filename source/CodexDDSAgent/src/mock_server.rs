@@ -42,11 +42,14 @@ pub async fn run() -> Result<(), Box<dyn std::error::Error>> {
         .await?;
     }
 
+    let mut reverse_ids = std::collections::HashSet::new();
     for index in 0..value("--reverse-count")?.unwrap_or(0) {
+        let id = format!("mock-reverse-{index}");
+        reverse_ids.insert(id.clone());
         send_json(
             &mut websocket,
             json!({
-                "id": format!("mock-reverse-{index}"),
+                "id": id,
                 "method": "currentTime/read",
                 "params": {}
             }),
@@ -65,9 +68,35 @@ pub async fn run() -> Result<(), Box<dyn std::error::Error>> {
         if delay_ms > 0 {
             tokio::time::sleep(Duration::from_millis(delay_ms)).await;
         }
+        let response_id = request.get("id").cloned().unwrap_or_else(|| json!(null));
+        if request.get("method").is_none() && reverse_ids.remove(response_id.as_str().unwrap_or(""))
+        {
+            let acknowledged = if request.get("error").is_some() {
+                json!({
+                    "method": "turn/started",
+                    "params": {
+                        "reason": "reverse-error",
+                        "reverse_id": response_id,
+                        "error": request.get("error").cloned().unwrap_or(Value::Null)
+                    }
+                })
+            } else {
+                json!({
+                    "method": "turn/started",
+                    "params": {
+                        "reason": "reverse-response",
+                        "reverse_id": response_id,
+                        "result": request.get("result").cloned().unwrap_or(Value::Null)
+                    }
+                })
+            };
+            send_json(&mut websocket, acknowledged).await?;
+            continue;
+        }
+
         let response = if let Some(code) = rpc_error_code.as_deref() {
             json!({
-                "id": request.get("id").cloned().unwrap_or_else(|| json!(null)),
+                "id": response_id,
                 "error": {
                     "code": code,
                     "message": "mock Codex error",

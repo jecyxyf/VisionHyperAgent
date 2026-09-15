@@ -23,11 +23,13 @@ cargo run -- --no-discovery
 1. 点击“启动本地服务”；固定端口可留空。
 2. 确认 Endpoint 已自动填入，并点击“连接 Endpoint”。
 3. 修改 Agent 名称，点击“Create Agent”。
-4. 依次验证“状态”“发送 RPC”“事件与状态流”。
-5. 点击“Detach”，确认状态变为 stopped，配置仍保留。
-6. 点击“Attach”重新绑定；只有首次 Attach 勾选模型配置。
-7. 停止发送心跳后等待 5 秒，runtime 应自动停止。
-8. 测试完成后点击“关闭本地服务”。
+4. 确认“事件与状态流”出现通知，并会出现一条 currentTime/read 反向请求。
+5. 点击反向请求的“允许”，确认条目变为 answered，且事件流出现 reverse-response 确认通知。
+6. 依次验证“状态”“发送 RPC”。
+7. 点击“Detach”，确认状态变为 stopped，配置仍保留。
+8. 点击“Attach”重新绑定；只有首次 Attach 勾选模型配置。
+9. 停止发送心跳后等待 5 秒，runtime 应自动停止。
+10. 测试完成后点击“关闭本地服务”。
 
 ## 多桌面测试
 

@@ -23,7 +23,8 @@ fn test_ui_supports_multiple_desktops_over_one_service() {
         json!({
             "service_name": service_name,
             "agent_name": "initial-agent",
-            "fixed_port": service_port
+            "fixed_port": service_port,
+            "discovery_enabled": false
         }),
     );
     let endpoint = service["endpoint"].as_str().unwrap().to_string();
@@ -126,6 +127,24 @@ fn test_ui_supports_multiple_desktops_over_one_service() {
             "agent {agent_name} did not receive status feed"
         );
 
+        let reverse = wait_for_reverse(ui, &service_name, agent_name, &endpoint);
+        let reverse_id = reverse["reverse_id"].as_str().unwrap().to_string();
+        assert_eq!(reverse["method"], "currentTime/read");
+        let accepted = post_json(
+            ui,
+            "/api/reverse/response",
+            json!({
+                "endpoint": endpoint,
+                "service_name": service_name,
+                "agent_name": agent_name,
+                "reverse_id": reverse_id,
+                "result": {"approved": true, "value": agent_name},
+                "error": null
+            }),
+        );
+        assert_eq!(accepted["ok"], true, "reverse response failed: {accepted}");
+        wait_for_reverse_ack(ui, &service_name, agent_name, &reverse_id);
+
         let detached = post_json(
             ui,
             "/api/agent/detach",
@@ -140,6 +159,66 @@ fn test_ui_supports_multiple_desktops_over_one_service() {
         json!({"service_name": service_name}),
     );
     assert_eq!(shutdown["ok"], true);
+}
+
+fn wait_for_reverse(ui_port: u16, service_name: &str, agent_name: &str, endpoint: &str) -> Value {
+    let deadline = Instant::now() + Duration::from_secs(5);
+    loop {
+        let logs = post_json(
+            ui_port,
+            "/api/logs",
+            agent_request(service_name, agent_name, Some(endpoint), Value::Null),
+        );
+        if let Some(item) = logs["reverse"]
+            .as_array()
+            .into_iter()
+            .flatten()
+            .find(|item| item["method"] == "currentTime/read")
+        {
+            return item.clone();
+        }
+        assert!(
+            Instant::now() < deadline,
+            "agent {agent_name} did not receive reverse request: {logs}"
+        );
+        std::thread::sleep(Duration::from_millis(100));
+    }
+}
+
+fn wait_for_reverse_ack(ui_port: u16, service_name: &str, agent_name: &str, reverse_id: &str) {
+    let deadline = Instant::now() + Duration::from_secs(5);
+    loop {
+        let logs = post_json(
+            ui_port,
+            "/api/logs",
+            json!({
+                "service_name": service_name,
+                "agent_name": agent_name
+            }),
+        );
+        let acknowledged = logs["records"]
+            .as_array()
+            .into_iter()
+            .flatten()
+            .any(|item| {
+                item["method"] == "turn/started"
+                    && item["params"]["reason"] == "reverse-response"
+                    && item["params"]["result"]["value"] == agent_name
+            });
+        let marked = logs["reverse"]
+            .as_array()
+            .into_iter()
+            .flatten()
+            .any(|item| item["reverse_id"] == reverse_id && item["answered"] == true);
+        if acknowledged && marked {
+            return;
+        }
+        assert!(
+            Instant::now() < deadline,
+            "reverse response was not acknowledged by mock Codex: {logs}"
+        );
+        std::thread::sleep(Duration::from_millis(100));
+    }
 }
 
 struct TestUi {

@@ -87,6 +87,7 @@ impl ServiceRuntime {
             )));
         }
 
+        publish_status(&session, &state, "starting").await?;
         let mut tasks = JoinSet::new();
         declare_info_queryable(&session, state.clone(), &mut tasks).await?;
         declare_status_queryable(&session, state.clone(), &mut tasks).await?;
@@ -147,11 +148,12 @@ impl ServiceRuntime {
 
     pub async fn shutdown(mut self) -> Result<(), Error> {
         let _ = self.shutdown_tx.send(true);
-        publish_status(&self.session, &self.state, "stopped").await?;
+        publish_status(&self.session, &self.state, "stopping").await?;
         self.tasks.abort_all();
         while self.tasks.join_next().await.is_some() {}
         let stop_agents_result =
             stop_all_agents(&self.session, &self.agents, &self.state.service_name).await;
+        publish_status(&self.session, &self.state, "stopped").await?;
         self.session
             .close()
             .await
@@ -273,13 +275,27 @@ impl RuntimeState {
         store.update_service_runtime(&self.service_name, state, port)
     }
 
-    fn info_response(&self) -> Value {
+    fn info_response(&self, include_conflict_metadata: bool) -> Value {
+        let mut response = json!({
+            "version": PROTOCOL_VERSION,
+            "protocol_version": PROTOCOL_VERSION,
+            "service_name": self.service_name,
+            "host": self.host,
+            "port": self.port,
+            "state": "running",
+        });
+        if include_conflict_metadata {
+            response["created_at"] = json!(self.created_at);
+            response["conflict_id"] = json!(self.conflict_id);
+        }
+        response
+    }
+
+    fn public_info_response(&self) -> Value {
         json!({
             "version": PROTOCOL_VERSION,
             "protocol_version": PROTOCOL_VERSION,
             "service_name": self.service_name,
-            "created_at": self.created_at,
-            "conflict_id": self.conflict_id,
             "host": self.host,
             "port": self.port,
             "state": "running",
@@ -329,8 +345,19 @@ async fn declare_info_queryable(
             let Ok(query) = queryable.recv_async().await else {
                 break;
             };
-            let payload =
-                serde_json::to_string(&state.info_response()).unwrap_or_else(|_| "{}".to_string());
+            let conflict_probe = query
+                .payload()
+                .and_then(|payload| payload.try_to_string().ok())
+                .and_then(|payload| serde_json::from_str::<Value>(&payload).ok())
+                .is_some_and(|payload| {
+                    payload.get("conflict_probe").and_then(Value::as_bool) == Some(true)
+                });
+            let info = if conflict_probe {
+                state.info_response(true)
+            } else {
+                state.public_info_response()
+            };
+            let payload = serde_json::to_string(&info).unwrap_or_else(|_| "{}".to_string());
             let _ = query.reply(INFO_KEY, payload).await;
         }
     });
@@ -563,6 +590,13 @@ async fn conflicting_service(
     let replies = session
         .get(INFO_KEY)
         .timeout(Duration::from_millis(500))
+        .payload(
+            json!({
+                "version": PROTOCOL_VERSION,
+                "conflict_probe": true,
+            })
+            .to_string(),
+        )
         .await
         .map_err(|error| Error::internal(error.to_string()))?;
     while let Ok(reply) = replies.recv_async().await {

@@ -236,6 +236,9 @@ async fn runtime_worker(
                             &mut reverse_current,
                             &mut reverse_queue,
                             &mut websocket,
+                            &mut process,
+                            restart.as_ref(),
+                            &mut next_recovery,
                         ).await;
                         let _ = reply.send(outcome);
                     }
@@ -315,7 +318,15 @@ async fn runtime_worker(
             }
         }
 
-        dispatch_rpc(&mut active_rpc, &mut rpc_queue, &mut websocket).await;
+        dispatch_rpc(
+            &mut active_rpc,
+            &mut rpc_queue,
+            &mut websocket,
+            &mut process,
+            restart.as_ref(),
+            &mut next_recovery,
+        )
+        .await;
         dispatch_reverse(
             &mut reverse_queue,
             &mut reverse_current,
@@ -453,6 +464,9 @@ async fn dispatch_rpc(
     active_rpc: &mut Option<PendingRpc>,
     rpc_queue: &mut VecDeque<PendingRpc>,
     websocket: &mut Option<CodexWebSocket>,
+    process: &mut Option<ManagedProcess>,
+    restart: Option<&RestartPaths>,
+    next_recovery: &mut Option<Instant>,
 ) {
     if active_rpc.is_some() || websocket.is_none() {
         return;
@@ -478,6 +492,10 @@ async fn dispatch_rpc(
     } else {
         rpc_queue.push_front(pending);
         *websocket = None;
+        *process = stop_process(process.take()).await;
+        if restart.is_some() {
+            *next_recovery = Some(Instant::now() + RECOVERY_DELAY);
+        }
     }
 }
 
@@ -518,6 +536,9 @@ async fn reverse_response(
     reverse_current: &mut Option<PendingReverse>,
     _reverse_queue: &mut VecDeque<PendingReverse>,
     websocket: &mut Option<CodexWebSocket>,
+    process: &mut Option<ManagedProcess>,
+    restart: Option<&RestartPaths>,
+    next_recovery: &mut Option<Instant>,
 ) -> Result<(), RpcError> {
     let invalid_state = || RpcError::new("invalid_state", "no matching reverse request is active");
     let Some(current) = reverse_current.as_ref() else {
@@ -551,6 +572,10 @@ async fn reverse_response(
     };
     if !sent {
         *websocket = None;
+        *process = stop_process(process.take()).await;
+        if restart.is_some() {
+            *next_recovery = Some(Instant::now() + RECOVERY_DELAY);
+        }
         return Err(RpcError::new("connection_closed", "codex websocket closed"));
     }
     Ok(())

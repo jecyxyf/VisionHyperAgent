@@ -52,6 +52,7 @@ struct StartServiceRequest {
     service_name: String,
     agent_name: String,
     fixed_port: Option<u16>,
+    discovery_enabled: Option<bool>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -424,7 +425,7 @@ async fn start_local_service(state: &Arc<TestUiState>, body: &Value) -> Result<V
     let paths = StoragePaths::new(&state.home);
     install_mock_binary(&paths)?;
     let mut config = ServiceConfig::default();
-    config.discovery_enabled = false;
+    config.discovery_enabled = request.discovery_enabled.unwrap_or(true);
     if let Some(port) = request.fixed_port {
         config.port_mode = PortMode::Fixed;
         config.port = Some(port);
@@ -765,7 +766,9 @@ fn install_mock_binary(paths: &StoragePaths) -> Result<(), ApiError> {
     paths.prepare().map_err(|error| error.to_string())?;
     let executable = std::env::current_exe().map_err(|error| error.to_string())?;
     let executable = shell_quote(&executable.to_string_lossy());
-    let script = format!("#!/bin/sh\nexec {executable} --mock-codex-server \"$@\"\n");
+    let script = format!(
+        "#!/bin/sh\nexec {executable} --mock-codex-server --notify-after-handshake --reverse-count 1 \"$@\"\n"
+    );
     std::fs::write(&paths.agent_binary, script).map_err(|error| error.to_string())?;
     #[cfg(unix)]
     {

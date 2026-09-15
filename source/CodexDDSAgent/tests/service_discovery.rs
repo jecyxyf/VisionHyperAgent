@@ -33,6 +33,8 @@ async fn service_discovery_and_status_snapshot_are_available() {
     assert_eq!(info["service_name"], "service-discovery-test");
     assert_eq!(info["port"], port);
     assert_eq!(info["state"], "running");
+    assert!(info.get("created_at").is_none());
+    assert!(info.get("conflict_id").is_none());
 
     let status_key = "codex-dds/v1/service-discovery-test/status/get";
     let status = query_json(&client, status_key).await;

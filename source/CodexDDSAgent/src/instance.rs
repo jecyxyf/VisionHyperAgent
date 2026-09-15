@@ -214,7 +214,17 @@ async fn create_or_attach(
         }
     }
 
-    start_runtime(session, manager, service_name, agent_name).await?;
+    publish_agent_state(session, service_name, agent_name, "starting").await?;
+    if let Err(error) = start_runtime(session, manager, service_name, agent_name).await {
+        let store_handle = registry_store(manager)?;
+        let _ = lock_store(&store_handle)?.mark_agent_stopped(
+            service_name,
+            agent_name,
+            AgentRegistryState::Error,
+        );
+        let _ = publish_agent_state(session, service_name, agent_name, "error").await;
+        return Err(error);
+    }
     publish_agent_state(session, service_name, agent_name, "running").await?;
     Ok(json!({
         "version": PROTOCOL_VERSION,
@@ -248,6 +258,7 @@ async fn start_runtime(
     let event_session = session.clone();
     let event_service = service_name.to_string();
     let event_agent = agent_name.to_string();
+    let event_manager = manager.clone();
     tokio::spawn(async move {
         while let Some(event) = events.recv().await {
             let (key, payload) = match event {
@@ -295,7 +306,10 @@ async fn start_runtime(
                         "state": state,
                         "websocket_state": websocket_state,
                         "codex_process_state": codex_process_state,
-                        "heartbeat_active": true,
+                        "heartbeat_active": event_manager
+                            .lock()
+                            .map(|agents| agents.is_active(&event_agent))
+                            .unwrap_or(false),
                         "model_config_initialized": true,
                         "processing_request": processing_request,
                         "failure_count": failure_count,
@@ -336,6 +350,7 @@ async fn stop_agent(
         agents.agents.remove(agent_name)
     };
     if let Some(runtime) = runtime {
+        publish_agent_state(session, service_name, agent_name, "stopping").await?;
         runtime.runtime.stop().await?;
     }
     let store_handle = registry_store(manager)?;
@@ -400,8 +415,14 @@ async fn reverse_response(
     if payload.get("version").and_then(Value::as_i64) != Some(PROTOCOL_VERSION) {
         return Err(invalid_request("unsupported protocol version"));
     }
-    let result = payload.get("result").cloned();
-    let error = payload.get("error").cloned();
+    let result = payload
+        .get("result")
+        .filter(|value| !value.is_null())
+        .cloned();
+    let error = payload
+        .get("error")
+        .filter(|value| !value.is_null())
+        .cloned();
     if result.is_some() == error.is_some() {
         return Err(invalid_request(
             "exactly one of result or error is required",
@@ -530,6 +551,7 @@ pub async fn stop_expired_agents(
             Err(_) => None,
         };
         if let Some(runtime) = runtime {
+            let _ = publish_agent_state(session, service_name, &name, "stopping").await;
             let _ = runtime.runtime.stop().await;
             stopped.push(name.clone());
         }
@@ -552,6 +574,7 @@ pub async fn stop_all_agents(
     };
     let store_handle = registry_store(manager)?;
     for (agent_name, managed) in agents {
+        let _ = publish_agent_state(session, service_name, &agent_name, "stopping").await;
         let stop_result = managed.runtime.stop().await;
         if let Ok(store) = lock_store(&store_handle) {
             let _ =

@@ -97,6 +97,7 @@
         <div><label>初始 Agent 名称</label><input id="initialAgent" value="initial-agent"></div>
       </div>
       <label>固定端口 / 留空自动</label><input id="fixedPort" placeholder="17600">
+      <label><input type="checkbox" id="discoveryEnabled" style="width:auto;margin-right:7px" checked>启用局域网发现</label>
       <div class="actions">
         <button class="primary" onclick="startLocalService()">启动本地服务</button>
         <button onclick="listLocalServices()">本地服务列表</button>
@@ -241,7 +242,8 @@ async function startLocalService() {
     const data = await api('/api/service/start', {
       service_name: $('localService').value.trim(),
       agent_name: $('initialAgent').value.trim(),
-      fixed_port: Number($('fixedPort').value) || null
+      fixed_port: Number($('fixedPort').value) || null,
+      discovery_enabled: $('discoveryEnabled').checked
     });
     $('endpoint').value = data.endpoint;
     $('serviceName').value = data.service_name;
