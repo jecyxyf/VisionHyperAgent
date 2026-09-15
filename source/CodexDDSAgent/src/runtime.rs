@@ -1,20 +1,28 @@
 use std::{
-    collections::HashMap,
+    collections::VecDeque,
     path::{Path, PathBuf},
+    time::Duration,
 };
 
 use futures_util::{SinkExt, StreamExt};
 use serde_json::{json, Value};
-use tokio::sync::{mpsc, oneshot};
+use tokio::{
+    sync::{mpsc, oneshot},
+    time::{sleep_until, Instant},
+};
 use tokio_tungstenite::tungstenite::Message;
 use uuid::Uuid;
 
 use crate::{
     error::{Error, RpcError},
     process::{ManagedProcess, ProcessSupervisor},
-    protocol::RpcResponse,
-    websocket::{connect_and_handshake, parse_text_message},
+    protocol::{self, RpcResponse},
+    websocket::{connect_and_handshake, parse_text_message, CodexWebSocket},
 };
+
+const MAX_RECOVERY_FAILURES: usize = 5;
+const REVERSE_REQUEST_TIMEOUT: Duration = Duration::from_secs(5 * 60);
+const RECOVERY_DELAY: Duration = Duration::from_millis(200);
 
 #[derive(Debug)]
 pub enum RuntimeCommand {
@@ -26,7 +34,9 @@ pub enum RuntimeCommand {
     },
     ReverseResponse {
         reverse_id: String,
-        result: Value,
+        result: Option<Value>,
+        error: Option<Value>,
+        reply: oneshot::Sender<Result<(), RpcError>>,
     },
     Stop,
 }
@@ -44,11 +54,33 @@ pub enum RuntimeEvent {
         method: String,
         params: Value,
     },
+    State {
+        state: &'static str,
+        websocket_state: &'static str,
+        codex_process_state: &'static str,
+        processing_request: bool,
+        failure_count: usize,
+        error: Option<String>,
+    },
+}
+
+struct PendingRpc {
+    request_id: String,
+    method: String,
+    params: Value,
+    reply: oneshot::Sender<RpcResponse>,
+}
+
+struct PendingReverse {
+    reverse_id: String,
+    original_id: Value,
+    method: String,
+    params: Value,
+    deadline: Instant,
 }
 
 pub struct AgentRuntime {
     command_tx: mpsc::Sender<RuntimeCommand>,
-    process: ManagedProcess,
     log_path: PathBuf,
 }
 
@@ -61,22 +93,52 @@ impl AgentRuntime {
         let (process, websocket_url) =
             ProcessSupervisor::start(binary, codex_home, log_path).await?;
         let websocket = connect_and_handshake(&websocket_url).await?;
+        Self::spawn_worker(Some(process), Some(websocket), binary, codex_home, log_path)
+    }
+
+    pub async fn connect(
+        websocket_url: &str,
+        log_path: &Path,
+    ) -> Result<(Self, mpsc::Receiver<RuntimeEvent>), Error> {
+        let websocket = connect_and_handshake(websocket_url).await?;
+        let binary = PathBuf::from("/nonexistent/codex-app-server");
+        let codex_home = PathBuf::from("/nonexistent/codex-home");
+        Self::spawn_worker(None, Some(websocket), &binary, &codex_home, log_path)
+    }
+
+    fn spawn_worker(
+        process: Option<ManagedProcess>,
+        websocket: Option<CodexWebSocket>,
+        binary: &Path,
+        codex_home: &Path,
+        log_path: &Path,
+    ) -> Result<(Self, mpsc::Receiver<RuntimeEvent>), Error> {
         let (command_tx, command_rx) = mpsc::channel(1024);
         let (event_tx, event_rx) = mpsc::channel(4096);
-        tokio::spawn(runtime_worker(websocket, command_rx, event_tx));
+        let restart = RestartPaths {
+            binary: binary.to_path_buf(),
+            codex_home: codex_home.to_path_buf(),
+            log_path: log_path.to_path_buf(),
+        };
+        tokio::spawn(runtime_worker(
+            process,
+            websocket,
+            command_rx,
+            event_tx,
+            Some(restart),
+        ));
         Ok((
             Self {
                 command_tx,
-                process,
                 log_path: log_path.to_path_buf(),
             },
             event_rx,
         ))
     }
 
-    pub async fn stop(mut self) -> Result<(), Error> {
+    pub async fn stop(self) -> Result<(), Error> {
         let _ = self.command_tx.send(RuntimeCommand::Stop).await;
-        self.process.stop().await
+        Ok(())
     }
 
     pub fn command_sender(&self) -> mpsc::Sender<RuntimeCommand> {
@@ -88,116 +150,468 @@ impl AgentRuntime {
     }
 }
 
-async fn runtime_worker(
-    mut websocket: crate::websocket::CodexWebSocket,
-    mut commands: mpsc::Receiver<RuntimeCommand>,
-    events: mpsc::Sender<RuntimeEvent>,
-) {
-    let mut reverse_ids: HashMap<String, Value> = HashMap::new();
-    while let Some(command) = commands.recv().await {
-        match command {
-            RuntimeCommand::Stop => break,
-            RuntimeCommand::ReverseResponse { reverse_id, result } => {
-                let Some(original_id) = reverse_ids.remove(&reverse_id) else {
-                    continue;
-                };
-                let response = json!({"id": original_id, "result": result});
-                if websocket
-                    .send(Message::Text(response.to_string().into()))
-                    .await
-                    .is_err()
-                {
-                    break;
-                }
-            }
-            RuntimeCommand::Rpc {
-                request_id,
-                method,
-                params,
-                reply,
-            } => {
-                let request = json!({
-                    "id": request_id,
-                    "method": method,
-                    "params": params,
-                });
-                if websocket
-                    .send(Message::Text(request.to_string().into()))
-                    .await
-                    .is_err()
-                {
-                    let _ = reply.send(RpcResponse::failure(
-                        request_id,
-                        RpcError::new("connection_closed", "codex websocket closed"),
-                    ));
-                    break;
-                }
-
-                let response = loop {
-                    let Some(Ok(message)) = websocket.next().await else {
-                        break RpcResponse::failure(
-                            request_id.clone(),
-                            RpcError::new("connection_closed", "codex websocket closed"),
-                        );
-                    };
-                    let Ok(value) = parse_text_message(message) else {
-                        continue;
-                    };
-                    if value.get("method").is_some() {
-                        if let Err(error) =
-                            forward_server_message(value, &events, &mut reverse_ids).await
-                        {
-                            let error = match error {
-                                Error::Rpc(error) => error,
-                                error => RpcError::internal(error.to_string()),
-                            };
-                            break RpcResponse::failure(request_id.clone(), error);
-                        }
-                        continue;
-                    }
-                    if value.get("id").and_then(Value::as_str) == Some(request_id.as_str()) {
-                        break response_from_codex(request_id.clone(), value);
-                    }
-                };
-                let _ = reply.send(response);
-            }
-        }
-    }
-    let _ = websocket.close(None).await;
+struct RestartPaths {
+    binary: PathBuf,
+    codex_home: PathBuf,
+    log_path: PathBuf,
 }
 
-async fn forward_server_message(
+async fn runtime_worker(
+    mut process: Option<ManagedProcess>,
+    mut websocket: Option<CodexWebSocket>,
+    mut commands: mpsc::Receiver<RuntimeCommand>,
+    events: mpsc::Sender<RuntimeEvent>,
+    restart: Option<RestartPaths>,
+) {
+    let mut rpc_queue: VecDeque<PendingRpc> = VecDeque::new();
+    let mut active_rpc: Option<PendingRpc> = None;
+    let mut reverse_queue: VecDeque<PendingReverse> = VecDeque::new();
+    let mut reverse_current: Option<PendingReverse> = None;
+    let mut failure_count = 0usize;
+    let mut fatal_error: Option<String> = None;
+    let mut next_recovery: Option<Instant> = None;
+
+    publish_state(
+        &events,
+        "running",
+        websocket_state(&websocket),
+        process_state(&process),
+        false,
+        failure_count,
+        None,
+    )
+    .await;
+
+    loop {
+        let reverse_deadline = reverse_current.as_ref().map(|item| item.deadline);
+        tokio::select! {
+            biased;
+            command = commands.recv() => {
+                let Some(command) = command else { break };
+                match command {
+                    RuntimeCommand::Stop => {
+                        fail_pending_rpcs(&mut active_rpc, &mut rpc_queue, "agent_stopped", "agent runtime stopped");
+                        fail_reverse(&mut reverse_current, &mut reverse_queue, "agent_stopped", "agent runtime stopped", &mut websocket).await;
+                        break;
+                    }
+                    RuntimeCommand::Rpc { request_id, method, params, reply } => {
+                        rpc_queue.push_back(PendingRpc { request_id, method, params, reply });
+                    }
+                    RuntimeCommand::ReverseResponse { reverse_id, result, error, reply } => {
+                        let outcome = reverse_response(
+                            reverse_id,
+                            result,
+                            error,
+                            &mut reverse_current,
+                            &mut reverse_queue,
+                            &mut websocket,
+                        ).await;
+                        let _ = reply.send(outcome);
+                    }
+                }
+            }
+            message = async {
+                match websocket.as_mut() {
+                    Some(stream) => stream.next().await,
+                    None => std::future::pending().await,
+                }
+            }, if websocket.is_some() => {
+                let received = message
+                    .transpose()
+                    .ok()
+                    .flatten()
+                    .and_then(|message| parse_text_message(message).ok());
+                let Some(value) = received else {
+                    websocket = None;
+                    process = stop_process(process).await;
+                    if restart.is_some() {
+                        next_recovery = Some(Instant::now() + RECOVERY_DELAY);
+                    } else {
+                        fatal_error = Some("codex websocket closed".to_string());
+                        break;
+                    }
+                    continue;
+                };
+
+                handle_server_message(
+                    value,
+                    &events,
+                    &mut websocket,
+                    &mut active_rpc,
+                    &mut rpc_queue,
+                    &mut reverse_current,
+                    &mut reverse_queue,
+                )
+                .await;
+            }
+            _ = async {
+                match reverse_deadline {
+                    Some(deadline) => sleep_until(deadline).await,
+                    None => std::future::pending().await,
+                }
+            }, if reverse_current.is_some() => {
+                if let Some(expired) = reverse_current.take() {
+                    send_reverse_error(
+                        expired.original_id,
+                        "reverse_request_timeout",
+                        "reverse request timed out",
+                        &mut websocket,
+                    ).await;
+                }
+            }
+            _ = async {
+                match next_recovery {
+                    Some(deadline) => sleep_until(deadline).await,
+                    None => std::future::pending().await,
+                }
+            }, if websocket.is_none() && restart.is_some() && next_recovery.is_some() => {
+                next_recovery = None;
+                if let Some(restart) = restart.as_ref() {
+                    match recover(restart).await {
+                        Ok((new_process, new_websocket)) => {
+                            process = Some(new_process);
+                            websocket = Some(new_websocket);
+                            failure_count = 0;
+                        }
+                        Err(error) => {
+                            failure_count += 1;
+                            if failure_count >= MAX_RECOVERY_FAILURES {
+                                fatal_error = Some(error);
+                                break;
+                            }
+                            next_recovery = Some(Instant::now() + RECOVERY_DELAY);
+                        }
+                    }
+                }
+            }
+        }
+
+        dispatch_rpc(&mut active_rpc, &mut rpc_queue, &mut websocket).await;
+        dispatch_reverse(
+            &mut reverse_queue,
+            &mut reverse_current,
+            &events,
+            &mut websocket,
+        )
+        .await;
+        publish_state(
+            &events,
+            if fatal_error.is_some() {
+                "error"
+            } else {
+                "running"
+            },
+            websocket_state(&websocket),
+            process_state(&process),
+            active_rpc.is_some(),
+            failure_count,
+            fatal_error.clone(),
+        )
+        .await;
+    }
+
+    if fatal_error.is_some() {
+        fail_pending_rpcs(
+            &mut active_rpc,
+            &mut rpc_queue,
+            "process_start_failed",
+            "codex-app-server could not be recovered",
+        );
+        fail_reverse(
+            &mut reverse_current,
+            &mut reverse_queue,
+            "process_start_failed",
+            "codex-app-server could not be recovered",
+            &mut websocket,
+        )
+        .await;
+    }
+    if let Some(mut stream) = websocket.take() {
+        let _ = stream.close(None).await;
+    }
+    process = stop_process(process).await;
+    publish_state(
+        &events,
+        "stopped",
+        "disconnected",
+        "stopped",
+        false,
+        failure_count,
+        fatal_error,
+    )
+    .await;
+}
+
+async fn handle_server_message(
     value: Value,
     events: &mpsc::Sender<RuntimeEvent>,
-    reverse_ids: &mut HashMap<String, Value>,
-) -> Result<(), Error> {
-    let method = value
-        .get("method")
-        .and_then(Value::as_str)
-        .unwrap_or_default()
-        .to_string();
-    let params = value.get("params").cloned().unwrap_or(Value::Null);
-    if value.get("id").is_some() {
-        let reverse_id = Uuid::new_v4().to_string();
-        reverse_ids.insert(reverse_id.clone(), value["id"].clone());
-        events
-            .send(RuntimeEvent::ReverseRequest {
-                reverse_id,
-                method,
+    websocket: &mut Option<CodexWebSocket>,
+    active_rpc: &mut Option<PendingRpc>,
+    rpc_queue: &mut VecDeque<PendingRpc>,
+    reverse_current: &mut Option<PendingReverse>,
+    reverse_queue: &mut VecDeque<PendingReverse>,
+) {
+    if value.get("method").is_some() {
+        let method = value
+            .get("method")
+            .and_then(Value::as_str)
+            .unwrap_or_default();
+        let params = value.get("params").cloned().unwrap_or(Value::Null);
+        if value.get("id").is_some() {
+            if !protocol::is_server_request_method(method) {
+                send_reverse_error(
+                    value["id"].clone(),
+                    "unknown_method",
+                    "method is not part of the fixed Codex protocol",
+                    websocket,
+                )
+                .await;
+                return;
+            }
+            if protocol::disabled_login_method(method) {
+                send_reverse_error(
+                    value["id"].clone(),
+                    "disabled_by_policy",
+                    "account login is disabled",
+                    websocket,
+                )
+                .await;
+                return;
+            }
+            let pending = PendingReverse {
+                reverse_id: Uuid::new_v4().to_string(),
+                original_id: value["id"].clone(),
+                method: method.to_string(),
+                params: params.clone(),
+                deadline: Instant::now() + REVERSE_REQUEST_TIMEOUT,
+            };
+            let event = RuntimeEvent::ReverseRequest {
+                reverse_id: pending.reverse_id.clone(),
+                method: pending.method.clone(),
                 params,
-            })
-            .await
-            .map_err(|_| Error::internal("runtime event receiver closed"))
-    } else {
-        events
-            .send(RuntimeEvent::Notification {
+            };
+            if events.send(event).await.is_ok() {
+                if reverse_current.is_some() {
+                    reverse_queue.push_back(pending);
+                } else {
+                    *reverse_current = Some(pending);
+                }
+            } else {
+                send_reverse_error(
+                    pending.original_id,
+                    "internal_error",
+                    "runtime event receiver closed",
+                    websocket,
+                )
+                .await;
+            }
+        } else if protocol::is_server_notification_method(method) {
+            let event = RuntimeEvent::Notification {
                 event_id: Uuid::new_v4().to_string(),
-                method,
+                method: method.to_string(),
                 params,
                 received_at: chrono::Utc::now().to_rfc3339(),
-            })
+            };
+            if events.send(event).await.is_err() {
+                fail_pending_rpcs(
+                    active_rpc,
+                    rpc_queue,
+                    "internal_error",
+                    "runtime event receiver closed",
+                );
+            }
+        }
+        return;
+    }
+
+    let response_id = value.get("id").cloned().unwrap_or(Value::Null);
+    let matches_active = active_rpc
+        .as_ref()
+        .is_some_and(|pending| Value::String(pending.request_id.clone()) == response_id);
+    if !matches_active {
+        return;
+    }
+    if let Some(pending) = active_rpc.take() {
+        let _ = pending
+            .reply
+            .send(response_from_codex(pending.request_id, value));
+    }
+}
+
+async fn dispatch_rpc(
+    active_rpc: &mut Option<PendingRpc>,
+    rpc_queue: &mut VecDeque<PendingRpc>,
+    websocket: &mut Option<CodexWebSocket>,
+) {
+    if active_rpc.is_some() || websocket.is_none() {
+        return;
+    }
+    let Some(pending) = rpc_queue.pop_front() else {
+        return;
+    };
+    let request = json!({
+        "id": pending.request_id,
+        "method": pending.method,
+        "params": pending.params,
+    });
+    let Some(stream) = websocket.as_mut() else {
+        rpc_queue.push_front(pending);
+        return;
+    };
+    if stream
+        .send(Message::Text(request.to_string().into()))
+        .await
+        .is_ok()
+    {
+        *active_rpc = Some(pending);
+    } else {
+        rpc_queue.push_front(pending);
+        *websocket = None;
+    }
+}
+
+async fn dispatch_reverse(
+    reverse_queue: &mut VecDeque<PendingReverse>,
+    reverse_current: &mut Option<PendingReverse>,
+    events: &mpsc::Sender<RuntimeEvent>,
+    websocket: &mut Option<CodexWebSocket>,
+) {
+    if reverse_current.is_some() || websocket.is_none() {
+        return;
+    }
+    let Some(pending) = reverse_queue.pop_front() else {
+        return;
+    };
+    let event = RuntimeEvent::ReverseRequest {
+        reverse_id: pending.reverse_id.clone(),
+        method: pending.method.clone(),
+        params: pending.params.clone(),
+    };
+    *reverse_current = Some(pending);
+    if events.send(event).await.is_err() {
+        let pending = reverse_current.take().unwrap();
+        send_reverse_error(
+            pending.original_id,
+            "internal_error",
+            "runtime event receiver closed",
+            websocket,
+        )
+        .await;
+    }
+}
+
+async fn reverse_response(
+    reverse_id: String,
+    result: Option<Value>,
+    error: Option<Value>,
+    reverse_current: &mut Option<PendingReverse>,
+    _reverse_queue: &mut VecDeque<PendingReverse>,
+    websocket: &mut Option<CodexWebSocket>,
+) -> Result<(), RpcError> {
+    let invalid_state = || RpcError::new("invalid_state", "no matching reverse request is active");
+    let Some(current) = reverse_current.as_ref() else {
+        return Err(invalid_state());
+    };
+    if current.reverse_id != reverse_id {
+        return Err(RpcError::new(
+            "not_found",
+            "reverse_id does not match the active request",
+        ));
+    }
+    let Some(pending) = reverse_current.take() else {
+        return Err(invalid_state());
+    };
+    let response = if let Some(error) = error {
+        json!({"id": pending.original_id, "error": error})
+    } else if let Some(result) = result {
+        json!({"id": pending.original_id, "result": result})
+    } else {
+        json!({
+            "id": pending.original_id,
+            "error": {"code": "invalid_request", "message": "result or error is required"}
+        })
+    };
+    let sent = match websocket.as_mut() {
+        Some(stream) => stream
+            .send(Message::Text(response.to_string().into()))
             .await
-            .map_err(|_| Error::internal("runtime event receiver closed"))
+            .is_ok(),
+        None => false,
+    };
+    if !sent {
+        *websocket = None;
+        return Err(RpcError::new("connection_closed", "codex websocket closed"));
+    }
+    Ok(())
+}
+
+async fn recover(restart: &RestartPaths) -> Result<(ManagedProcess, CodexWebSocket), String> {
+    let (process, url) =
+        ProcessSupervisor::start(&restart.binary, &restart.codex_home, &restart.log_path)
+            .await
+            .map_err(|error| error.to_string())?;
+    let websocket = connect_and_handshake(&url)
+        .await
+        .map_err(|error| error.to_string())?;
+    Ok((process, websocket))
+}
+
+async fn stop_process(process: Option<ManagedProcess>) -> Option<ManagedProcess> {
+    if let Some(mut child) = process {
+        let _ = child.stop().await;
+    }
+    None
+}
+
+async fn send_reverse_error(
+    id: Value,
+    code: &str,
+    message: &str,
+    websocket: &mut Option<CodexWebSocket>,
+) {
+    let response = json!({
+        "id": id,
+        "error": {"code": code, "message": message}
+    });
+    if let Some(stream) = websocket.as_mut() {
+        let _ = stream
+            .send(Message::Text(response.to_string().into()))
+            .await;
+    }
+}
+
+async fn fail_reverse(
+    reverse_current: &mut Option<PendingReverse>,
+    reverse_queue: &mut VecDeque<PendingReverse>,
+    code: &str,
+    message: &str,
+    websocket: &mut Option<CodexWebSocket>,
+) {
+    if let Some(current) = reverse_current.take() {
+        send_reverse_error(current.original_id, code, message, websocket).await;
+    }
+    for pending in reverse_queue.drain(..) {
+        send_reverse_error(pending.original_id, code, message, websocket).await;
+    }
+}
+
+fn fail_pending_rpcs(
+    active_rpc: &mut Option<PendingRpc>,
+    rpc_queue: &mut VecDeque<PendingRpc>,
+    code: &'static str,
+    message: &str,
+) {
+    if let Some(pending) = active_rpc.take() {
+        let _ = pending.reply.send(RpcResponse::failure(
+            pending.request_id.clone(),
+            RpcError::new(code, message),
+        ));
+    }
+    for pending in rpc_queue.drain(..) {
+        let _ = pending.reply.send(RpcResponse::failure(
+            pending.request_id.clone(),
+            RpcError::new(code, message),
+        ));
     }
 }
 
@@ -220,4 +634,41 @@ fn response_from_codex(request_id: String, value: Value) -> RpcResponse {
         request_id,
         value.get("result").cloned().unwrap_or(Value::Null),
     )
+}
+
+fn websocket_state(websocket: &Option<CodexWebSocket>) -> &'static str {
+    if websocket.is_some() {
+        "connected"
+    } else {
+        "disconnected"
+    }
+}
+
+fn process_state(process: &Option<ManagedProcess>) -> &'static str {
+    if process.is_some() {
+        "running"
+    } else {
+        "stopped"
+    }
+}
+
+async fn publish_state(
+    events: &mpsc::Sender<RuntimeEvent>,
+    state: &'static str,
+    websocket_state: &'static str,
+    codex_process_state: &'static str,
+    processing_request: bool,
+    failure_count: usize,
+    error: Option<String>,
+) {
+    let _ = events
+        .send(RuntimeEvent::State {
+            state,
+            websocket_state,
+            codex_process_state,
+            processing_request,
+            failure_count,
+            error,
+        })
+        .await;
 }

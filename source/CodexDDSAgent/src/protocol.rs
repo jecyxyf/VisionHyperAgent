@@ -126,6 +126,22 @@ fn client_request_methods() -> &'static Vec<String> {
     METHODS.get_or_init(|| protocol_schema_methods("ClientRequest.json"))
 }
 
+pub fn is_server_request_method(method: &str) -> bool {
+    static METHODS: OnceLock<Vec<String>> = OnceLock::new();
+    METHODS
+        .get_or_init(|| protocol_schema_methods("ServerRequest.json"))
+        .iter()
+        .any(|candidate| candidate == method)
+}
+
+pub fn is_server_notification_method(method: &str) -> bool {
+    static METHODS: OnceLock<Vec<String>> = OnceLock::new();
+    METHODS
+        .get_or_init(|| protocol_schema_methods("ServerNotification.json"))
+        .iter()
+        .any(|candidate| candidate == method)
+}
+
 fn protocol_schema_methods(file_name: &str) -> Vec<String> {
     protocol_schema(file_name)
         .get("oneOf")

@@ -252,6 +252,30 @@ async fn start_runtime(
                         "params": params,
                     }),
                 ),
+                RuntimeEvent::State {
+                    state,
+                    websocket_state,
+                    codex_process_state,
+                    processing_request,
+                    failure_count,
+                    error,
+                } => (
+                    format!("codex-dds/v1/{event_service}/{event_agent}/status"),
+                    json!({
+                        "version": PROTOCOL_VERSION,
+                        "service_name": event_service,
+                        "agent_name": event_agent,
+                        "state": state,
+                        "websocket_state": websocket_state,
+                        "codex_process_state": codex_process_state,
+                        "heartbeat_active": true,
+                        "model_config_initialized": true,
+                        "processing_request": processing_request,
+                        "failure_count": failure_count,
+                        "error": error,
+                        "changed_at": chrono::Utc::now().to_rfc3339(),
+                    }),
+                ),
             };
             let _ = event_session.put(key.as_str(), payload.to_string()).await;
         }
@@ -345,21 +369,30 @@ async fn reverse_response(
     if payload.get("version").and_then(Value::as_i64) != Some(PROTOCOL_VERSION) {
         return Err(invalid_request("unsupported protocol version"));
     }
+    let result = payload.get("result").cloned();
+    let error = payload.get("error").cloned();
+    if result.is_some() == error.is_some() {
+        return Err(invalid_request(
+            "exactly one of result or error is required",
+        ));
+    }
     let sender = {
         let agents = lock_manager(manager)?;
         agents
             .command_sender(agent_name)
             .ok_or_else(agent_stopped)?
     };
+    let (reply_tx, reply_rx) = oneshot::channel();
     sender
         .send(RuntimeCommand::ReverseResponse {
             reverse_id,
-            result: payload.get("result").cloned().unwrap_or_else(
-                || json!({"error": {"code": "invalid_request", "message": "missing result"}}),
-            ),
+            result,
+            error,
+            reply: reply_tx,
         })
         .await
         .map_err(|_| agent_stopped())?;
+    reply_rx.await.map_err(|_| agent_stopped())??;
     Ok(json!({"version": PROTOCOL_VERSION, "ok": true}))
 }
 
