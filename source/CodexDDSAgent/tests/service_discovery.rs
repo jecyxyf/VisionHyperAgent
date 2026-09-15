@@ -52,6 +52,59 @@ async fn service_discovery_and_status_snapshot_are_available() {
     assert_eq!(record.state, ServiceRegistryState::Stopped);
 }
 
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn zenoh_discovers_online_services_and_returns_connectable_endpoint() {
+    let root = tempfile::tempdir().unwrap();
+    let paths = StoragePaths::new(root.path());
+    let store = RegistryStore::open(paths.clone()).unwrap();
+    let port = free_port();
+    let mut config = ServiceConfig::default();
+    config.port_mode = PortMode::Fixed;
+    config.port = Some(port);
+    config.discovery_enabled = true;
+    store
+        .create_service("service-zenoh-discovery", "desktop-a", &config)
+        .unwrap();
+
+    let service = ServiceRuntime::start(
+        Arc::new(std::sync::Mutex::new(store)),
+        "service-zenoh-discovery",
+    )
+    .await
+    .unwrap();
+
+    let discovery_client = open_discovery_client().await;
+    let deadline = tokio::time::Instant::now() + Duration::from_secs(5);
+    let info = loop {
+        let found = query_all(&discovery_client, INFO_KEY)
+            .await
+            .into_iter()
+            .find(|info| info["service_name"] == "service-zenoh-discovery");
+        if let Some(info) = found {
+            break info;
+        }
+        assert!(
+            tokio::time::Instant::now() < deadline,
+            "service was not discovered through Zenoh"
+        );
+        tokio::time::sleep(Duration::from_millis(100)).await;
+    };
+    assert_eq!(info["state"], "running");
+    assert_eq!(info["port"], port);
+    assert!(!info["host"].as_str().unwrap_or_default().is_empty());
+
+    let endpoint = format!("tcp/{}:{}", info["host"].as_str().unwrap(), port);
+    let direct_client = open_endpoint_client(&endpoint).await;
+    let status_key = "codex-dds/v1/service-zenoh-discovery/status/get";
+    let status = query_json(&direct_client, status_key).await;
+    assert_eq!(status["state"], "running");
+    assert!(endpoint.starts_with("tcp/"));
+
+    service.shutdown().await.unwrap();
+    discovery_client.close().await.unwrap();
+    direct_client.close().await.unwrap();
+}
+
 fn free_port() -> u16 {
     let listener = TcpListener::bind("127.0.0.1:0").unwrap();
     listener.local_addr().unwrap().port()
@@ -67,6 +120,46 @@ async fn open_client(port: u16) -> zenoh::Session {
         .insert_json5("scouting/multicast/enabled", "false")
         .unwrap();
     zenoh::open(config).await.unwrap()
+}
+
+async fn open_endpoint_client(endpoint: &str) -> zenoh::Session {
+    let mut config = Config::default();
+    config.insert_json5("mode", r#""client""#).unwrap();
+    config
+        .insert_json5("connect/endpoints", &format!(r#"["{endpoint}"]"#))
+        .unwrap();
+    config
+        .insert_json5("scouting/multicast/enabled", "false")
+        .unwrap();
+    zenoh::open(config).await.unwrap()
+}
+
+async fn open_discovery_client() -> zenoh::Session {
+    let mut config = Config::default();
+    config.insert_json5("mode", r#""client""#).unwrap();
+    config
+        .insert_json5("scouting/multicast/enabled", "true")
+        .unwrap();
+    zenoh::open(config).await.unwrap()
+}
+
+async fn query_all(session: &zenoh::Session, key: &str) -> Vec<Value> {
+    let replies = session
+        .get(key)
+        .timeout(Duration::from_secs(2))
+        .await
+        .unwrap();
+    let mut values = Vec::new();
+    while let Ok(reply) = replies.recv_async().await {
+        if let Ok(sample) = reply.result() {
+            if let Some(payload) = sample.payload().try_to_string().ok() {
+                if let Ok(value) = serde_json::from_str::<Value>(&payload) {
+                    values.push(value);
+                }
+            }
+        }
+    }
+    values
 }
 
 async fn query_json(session: &zenoh::Session, key: &str) -> Value {

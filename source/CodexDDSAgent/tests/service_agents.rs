@@ -459,6 +459,79 @@ async fn notifications_and_reverse_requests_are_forwarded_per_agent() {
     fixture.service.shutdown().await.unwrap();
 }
 
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn reverse_response_error_is_forwarded_without_loss() {
+    let fixture = ServiceFixture::new(
+        "service-agents-reverse-error",
+        &["--notify-after-handshake", "--reverse-count", "1"],
+    )
+    .await;
+    let client = open_client(fixture.port).await;
+
+    let mut events = subscribe(
+        &client,
+        "codex-dds/v1/service-agents-reverse-error/desktop-a/event",
+    )
+    .await;
+    let mut reverse = subscribe(
+        &client,
+        "codex-dds/v1/service-agents-reverse-error/desktop-a/reverse/request",
+    )
+    .await;
+
+    query_json(
+        client.clone(),
+        "codex-dds/v1/service-agents-reverse-error/agent/desktop-a/create",
+        model_payload(),
+    )
+    .await;
+
+    let reverse_request = tokio::time::timeout(Duration::from_secs(4), reverse.recv())
+        .await
+        .unwrap()
+        .unwrap();
+    let reverse_id = reverse_request["reverse_id"].as_str().unwrap().to_string();
+    let response = query_json(
+        client.clone(),
+        "codex-dds/v1/service-agents-reverse-error/desktop-a/reverse/response",
+        json!({
+            "version": 1,
+            "reverse_id": reverse_id,
+            "error": {
+                "code": "approval_rejected",
+                "message": "user rejected the request",
+                "data": {"reason": "policy"}
+            }
+        }),
+    )
+    .await;
+    assert_eq!(response["ok"], true, "{response}");
+
+    let acknowledged = loop {
+        let event = tokio::time::timeout(Duration::from_secs(4), events.recv())
+            .await
+            .unwrap()
+            .unwrap();
+        if event["params"]["reason"] == "reverse-error" {
+            break event;
+        }
+    };
+    assert_eq!(acknowledged["method"], "turn/started");
+    assert_eq!(acknowledged["params"]["reason"], "reverse-error");
+    assert_eq!(
+        acknowledged["params"]["error"],
+        json!({
+            "code": "approval_rejected",
+            "message": "user rejected the request",
+            "data": {"reason": "policy"}
+        }),
+        "{acknowledged}"
+    );
+
+    client.close().await.unwrap();
+    fixture.service.shutdown().await.unwrap();
+}
+
 struct ServiceFixture {
     root: tempfile::TempDir,
     port: u16,
