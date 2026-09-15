@@ -1,4 +1,14 @@
 //! CodexDDSAgent 的独立服务边界。
 //!
-//! 当前只建立 Rust 包和依赖基线；WebSocket 连接、JSON-RPC 与生命周期实现
-//!将在后续步骤中逐步加入。
+//! CodexDDSAgent 的独立服务边界。
+
+pub mod cli;
+pub mod error;
+pub mod model_config;
+pub mod names;
+pub mod platform;
+pub mod process;
+pub mod protocol;
+pub mod registry;
+pub mod runtime;
+pub mod websocket;

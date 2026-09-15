@@ -1,0 +1,293 @@
+use clap::{Parser, Subcommand};
+use serde_json::json;
+
+use crate::{
+    error::Error,
+    registry::{PortMode, RegistryStore, ServiceConfig, StoragePaths},
+};
+
+#[derive(Debug, Parser)]
+#[command(
+    name = "CodexDDSAgent",
+    version,
+    about = "Local manager for CodexDDSAgent"
+)]
+pub struct Cli {
+    #[command(subcommand)]
+    command: Command,
+}
+
+#[derive(Debug, Subcommand)]
+enum Command {
+    #[command(subcommand)]
+    Service(ServiceCommand),
+    #[command(subcommand)]
+    Agent(AgentCommand),
+    #[command(subcommand)]
+    Config(ConfigCommand),
+}
+
+#[derive(Debug, Subcommand)]
+enum ServiceCommand {
+    Create {
+        #[arg(long)]
+        service_name: String,
+        #[arg(long)]
+        agent_name: String,
+        #[arg(long = "listen-host", default_value = "0.0.0.0")]
+        listen_host: String,
+        #[arg(long = "port-mode", default_value = "auto")]
+        port_mode: String,
+        #[arg(long)]
+        port: Option<u16>,
+        #[arg(long = "port-range", value_parser = parse_port_range)]
+        port_range: Option<(u16, u16)>,
+        #[arg(long = "disable-discovery")]
+        disable_discovery: bool,
+    },
+    Start {
+        #[arg(long)]
+        service_name: String,
+    },
+    List,
+    Shutdown {
+        #[arg(long)]
+        service_name: String,
+    },
+}
+
+#[derive(Debug, Subcommand)]
+enum AgentCommand {
+    List {
+        #[arg(long)]
+        service_name: String,
+    },
+    Delete {
+        #[arg(long)]
+        service_name: String,
+        #[arg(long)]
+        agent_name: String,
+        #[arg(long)]
+        force: bool,
+    },
+}
+
+#[derive(Debug, Subcommand)]
+enum ConfigCommand {
+    Get {
+        #[arg(long)]
+        service_name: String,
+    },
+    Set {
+        #[arg(long)]
+        service_name: String,
+        values: Vec<String>,
+    },
+}
+
+pub fn run(args: Cli) -> Result<(), Error> {
+    match args.command {
+        Command::Service(ServiceCommand::Create {
+            service_name,
+            agent_name,
+            listen_host,
+            port_mode,
+            port,
+            port_range,
+            disable_discovery,
+        }) => {
+            let paths = StoragePaths::from_environment()?;
+            let store = RegistryStore::open(paths)?;
+            let config = ServiceConfig {
+                listen_host,
+                port_mode: parse_port_mode(&port_mode)?,
+                port,
+                port_range,
+                discovery_enabled: !disable_discovery,
+            };
+            validate_service_config(&config)?;
+            let (service, agent) = store.create_service(&service_name, &agent_name, &config)?;
+            println!(
+                "{}",
+                json!({
+                    "service": service,
+                    "initial_agent": agent,
+                    "service_started": false
+                })
+            );
+        }
+        Command::Service(ServiceCommand::Start { service_name }) => {
+            let _paths = StoragePaths::from_environment()?;
+            let _store = RegistryStore::open(_paths)?;
+            let service = _store.get_service(&service_name)?.ok_or_else(|| {
+                Error::Rpc(crate::error::RpcError::new(
+                    "service_not_found",
+                    "service does not exist",
+                ))
+            })?;
+            let _ = service;
+            return Err(Error::internal(
+                "Zenoh service runtime is not implemented in this increment",
+            ));
+        }
+        Command::Service(ServiceCommand::List) => {
+            let store = RegistryStore::open(StoragePaths::from_environment()?)?;
+            println!("{}", serde_json::to_string_pretty(&store.list_services()?)?);
+        }
+        Command::Service(ServiceCommand::Shutdown { service_name }) => {
+            let store = RegistryStore::open(StoragePaths::from_environment()?)?;
+            store.update_service_runtime(
+                &service_name,
+                crate::registry::ServiceRegistryState::Stopped,
+                None,
+            )?;
+            println!(
+                "{}",
+                json!({"service_name": service_name, "state": "stopped"})
+            );
+        }
+        Command::Agent(AgentCommand::List { service_name }) => {
+            let store = RegistryStore::open(StoragePaths::from_environment()?)?;
+            println!(
+                "{}",
+                serde_json::to_string_pretty(&store.list_agents(&service_name)?)?
+            );
+        }
+        Command::Agent(AgentCommand::Delete {
+            service_name,
+            agent_name,
+            force,
+        }) => {
+            let store = RegistryStore::open(StoragePaths::from_environment()?)?;
+            let agent = store
+                .get_agent(&service_name, &agent_name)?
+                .ok_or_else(|| {
+                    Error::Rpc(crate::error::RpcError::new(
+                        "agent_not_found",
+                        "agent does not exist",
+                    ))
+                })?;
+            if agent.state == crate::registry::AgentRegistryState::Running && !force {
+                return Err(Error::Rpc(crate::error::RpcError::new(
+                    "agent_busy",
+                    "agent is active; use --force to stop and delete",
+                )));
+            }
+            store.delete_agent(&service_name, &agent_name)?;
+            println!(
+                "{}",
+                json!({"service_name": service_name, "agent_name": agent_name, "deleted": true})
+            );
+        }
+        Command::Config(ConfigCommand::Get { service_name }) => {
+            let store = RegistryStore::open(StoragePaths::from_environment()?)?;
+            let service = store.get_service(&service_name)?.ok_or_else(|| {
+                Error::Rpc(crate::error::RpcError::new(
+                    "service_not_found",
+                    "service does not exist",
+                ))
+            })?;
+            println!(
+                "{}",
+                serde_json::to_string_pretty(&crate::registry::service_config(&service)?)?
+            );
+        }
+        Command::Config(ConfigCommand::Set {
+            service_name,
+            values,
+        }) => {
+            let store = RegistryStore::open(StoragePaths::from_environment()?)?;
+            let service = store.get_service(&service_name)?.ok_or_else(|| {
+                Error::Rpc(crate::error::RpcError::new(
+                    "service_not_found",
+                    "service does not exist",
+                ))
+            })?;
+            let mut config = crate::registry::service_config(&service)?;
+            for value in values {
+                apply_config_value(&mut config, &value)?;
+            }
+            validate_service_config(&config)?;
+            store.set_service_config(&service_name, &config)?;
+            println!("{}", serde_json::to_string_pretty(&config)?);
+        }
+    }
+    Ok(())
+}
+
+fn parse_port_range(value: &str) -> Result<(u16, u16), String> {
+    let (start, end) = value.split_once('-').ok_or("expected START-END")?;
+    let start = start.parse().map_err(|_| "invalid START")?;
+    let end = end.parse().map_err(|_| "invalid END")?;
+    if start <= end && start != 0 {
+        Ok((start, end))
+    } else {
+        Err("port range must be ascending and not contain 0".to_string())
+    }
+}
+
+fn parse_port_mode(value: &str) -> Result<PortMode, Error> {
+    match value {
+        "auto" => Ok(PortMode::Auto),
+        "fixed" => Ok(PortMode::Fixed),
+        _ => Err(Error::internal("port_mode must be auto or fixed")),
+    }
+}
+
+fn apply_config_value(config: &mut ServiceConfig, item: &str) -> Result<(), Error> {
+    let (key, value) = item.split_once('=').ok_or_else(|| {
+        Error::Rpc(crate::error::RpcError::new(
+            "invalid_request",
+            "config item must be key=value",
+        ))
+    })?;
+    match key {
+        "listen_host" => config.listen_host = value.to_string(),
+        "port_mode" => config.port_mode = parse_port_mode(value)?,
+        "port" => {
+            config.port = if value.is_empty() {
+                None
+            } else {
+                Some(value.parse().map_err(|_| Error::internal("invalid port"))?)
+            }
+        }
+        "port_range" => {
+            config.port_range = if value.is_empty() {
+                None
+            } else {
+                Some(parse_port_range(value).map_err(Error::internal)?)
+            }
+        }
+        "discovery_enabled" => {
+            config.discovery_enabled = value
+                .parse()
+                .map_err(|_| Error::internal("invalid boolean"))?
+        }
+        _ => return Err(Error::internal(format!("unknown config key: {key}"))),
+    }
+    Ok(())
+}
+
+fn validate_service_config(config: &ServiceConfig) -> Result<(), Error> {
+    if config.listen_host.parse::<std::net::IpAddr>().is_err() && config.listen_host != "0.0.0.0" {
+        return Err(Error::Rpc(crate::error::RpcError::new(
+            "server_address_invalid",
+            "listen_host must be an IP address",
+        )));
+    }
+    if config.port_mode == PortMode::Fixed && config.port.is_none() {
+        return Err(Error::Rpc(crate::error::RpcError::new(
+            "server_address_invalid",
+            "fixed port mode requires port",
+        )));
+    }
+    if let Some((start, end)) = config.port_range {
+        if start == 0 || end < start {
+            return Err(Error::Rpc(crate::error::RpcError::new(
+                "server_address_invalid",
+                "invalid port range",
+            )));
+        }
+    }
+    Ok(())
+}
