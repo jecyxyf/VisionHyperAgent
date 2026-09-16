@@ -7,17 +7,27 @@
     icon,
     primary = false,
     selected = false,
+    disabled = false,
     onclick,
   }: {
     label: string;
     icon: IconName;
     primary?: boolean;
     selected?: boolean;
+    disabled?: boolean;
     onclick?: () => void;
   } = $props();
 </script>
 
-<button type="button" class:selected class:primary aria-label={label} title={label} onclick={onclick}>
+<button
+  type="button"
+  class:selected
+  class:primary
+  disabled={disabled}
+  aria-label={label}
+  title={label}
+  onclick={onclick}
+>
   <Icon name={icon} size={17} />
 </button>
 
@@ -41,6 +51,13 @@
 
   button:active {
     transform: translateY(1px);
+  }
+
+  button:disabled {
+    cursor: not-allowed;
+    opacity: 0.48;
+    box-shadow: none;
+    transform: none;
   }
 
   button.selected {

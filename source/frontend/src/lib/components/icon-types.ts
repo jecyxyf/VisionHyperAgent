@@ -7,6 +7,7 @@ export type IconName =
   | "edit"
   | "folder"
   | "grid"
+  | "history"
   | "next"
   | "network"
   | "previous"
