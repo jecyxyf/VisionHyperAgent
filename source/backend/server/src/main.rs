@@ -1,11 +1,18 @@
-//! VisionHyperAgent 本地服务器入口。
+//! VisionHyperAgent entry point.
 //!
-//! 启动后监听 127.0.0.1:8420，提供：
-//! - 静态文件服务（打包后的前端产物）
-//! - WebSocket 端点（实时通信）
-//! - REST API（项目/模型/配置）
+//! Process model:
+//! - Main thread: system tray event loop
+//! - Background thread: tokio async runtime (HTTP + WebSocket server)
+//! - Child process: Codex App Server (auto-killed when parent exits)
 //!
-//! 当所有 WebSocket 连接断开且无训练任务时，5 秒后自动退出。
+//! Exit strategy:
+//! - Tray icon right-click "退出" is the ONLY exit trigger
+//! - Closing the browser tab does NOT exit (browser is just a view)
+//! - On exit: kill Codex child, stop server, drop tray, process exits
+
+#![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
+
+mod tray;
 
 use std::net::SocketAddr;
 use std::sync::atomic::{AtomicUsize, Ordering};
@@ -14,10 +21,16 @@ use std::time::Duration;
 
 use axum::extract::ws::{Message, WebSocket};
 use axum::extract::{ConnectInfo, State, WebSocketUpgrade};
-use axum::response::IntoResponse;
+use axum::http::{header, StatusCode, Uri};
+use axum::response::{IntoResponse, Response};
 use axum::routing::get;
 use axum::Router;
+use rust_embed::RustEmbed;
 use tokio::sync::watch;
+
+#[derive(RustEmbed)]
+#[folder = "../../frontend/dist/"]
+struct FrontendAssets;
 
 #[derive(Clone)]
 struct AppState {
@@ -25,37 +38,113 @@ struct AppState {
     shutdown_tx: watch::Sender<bool>,
 }
 
-#[tokio::main]
-async fn main() {
-    let state = AppState {
-        active_connections: Arc::new(AtomicUsize::new(0)),
-        shutdown_tx: watch::channel(false).0,
+fn main() {
+    let url = "http://127.0.0.1:8420";
+
+    // Create tray icon
+    let (_tray_handle, tray_rx) = match tray::create_tray(url) {
+        Ok((h, rx)) => (Some(h), rx),
+        Err(e) => {
+            eprintln!("Warning: tray icon unavailable: {}", e);
+            (None, mpsc_channel_fallback())
+        }
     };
 
+    // Auto-open browser on first launch
+    let _ = webbrowser::open(url);
+
+    // Start server in background thread
+    let (shutdown_tx, shutdown_rx) = watch::channel(false);
+    let server_shutdown = shutdown_rx.clone();
+    let connections = Arc::new(AtomicUsize::new(0));
+
+    let server_state = AppState {
+        active_connections: connections.clone(),
+        shutdown_tx: shutdown_tx.clone(),
+    };
+
+    let server_thread = std::thread::spawn(move || {
+        let rt = tokio::runtime::Builder::new_multi_thread()
+            .enable_all()
+            .build()
+            .expect("failed to create tokio runtime");
+
+        rt.block_on(async move {
+            if let Err(e) = run_server(server_state, server_shutdown).await {
+                eprintln!("Server error: {}", e);
+                std::process::exit(1);
+            }
+        });
+    });
+
+    // Main thread: wait for tray Exit event
+    println!("VisionHyperAgent running at {}", url);
+    println!("Close via tray icon -> 退出");
+
+    for event in tray_rx.iter() {
+        match event {
+            tray::TrayEvent::OpenBrowser => {
+                // Already handled in tray callback
+            }
+            tray::TrayEvent::Exit => {
+                println!("Shutting down...");
+                let _ = shutdown_tx.send(true);
+                break;
+            }
+        }
+    }
+
+    // Wait for server to finish
+    let _ = server_thread.join();
+
+    // TODO: kill Codex child process here
+    // codex_process.shutdown(3).await;
+
+    println!("Goodbye");
+}
+
+async fn run_server(state: AppState, mut shutdown_rx: watch::Receiver<bool>) -> Result<(), String> {
     let app = Router::new()
         .route("/ws", get(ws_handler))
         .route("/api/health", get(health))
-        .fallback_service(get(static_handler))
+        .fallback(static_handler)
         .with_state(state.clone());
 
     let addr = SocketAddr::from(([127, 0, 0, 1], 8420));
-    let listener = tokio::net::TcpListener::bind(addr).await.unwrap();
-    println!("VisionHyperAgent running at http://{addr}");
-
-    let shutdown_rx = state.shutdown_tx.subscribe();
-    axum::serve(listener, app)
-        .with_graceful_shutdown(shutdown_signal(shutdown_rx))
+    let listener = tokio::net::TcpListener::bind(addr)
         .await
-        .unwrap();
+        .map_err(|e| format!("port {} in use: {}", addr, e))?;
+
+    axum::serve(listener, app)
+        .with_graceful_shutdown(async move {
+            loop {
+                if *shutdown_rx.borrow_and_update() {
+                    return;
+                }
+                if shutdown_rx.changed().await.is_err() {
+                    return;
+                }
+            }
+        })
+        .await
+        .map_err(|e| e.to_string())
 }
 
 async fn health() -> &'static str {
     "ok"
 }
 
-async fn static_handler() -> impl IntoResponse {
-    // TODO: serve frontend/dist
-    "VisionHyperAgent"
+async fn static_handler(uri: Uri) -> Response {
+    let path = uri.path().trim_start_matches('/');
+    let path = if path.is_empty() { "index.html" } else { path };
+
+    match FrontendAssets::get(path) {
+        Some(content) => {
+            let mime = mime_guess::from_path(path).first_or_octet_stream();
+            ([(header::CONTENT_TYPE, mime.as_ref())], content.data).into_response()
+        }
+        None => (StatusCode::NOT_FOUND, "404").into_response(),
+    }
 }
 
 async fn ws_handler(
@@ -68,7 +157,6 @@ async fn ws_handler(
 
 async fn handle_socket(mut socket: WebSocket, state: AppState) {
     state.active_connections.fetch_add(1, Ordering::SeqCst);
-    println!("client connected, total: {}", state.active_connections.load(Ordering::SeqCst));
 
     while let Some(Ok(msg)) = socket.recv().await {
         if let Message::Text(text) = msg {
@@ -78,28 +166,10 @@ async fn handle_socket(mut socket: WebSocket, state: AppState) {
         }
     }
 
-    let count = state.active_connections.fetch_sub(1, Ordering::SeqCst) - 1;
-    println!("client disconnected, remaining: {count}");
-
-    if count == 0 {
-        // 所有连接断开，启动 5 秒宽限期后退出
-        tokio::spawn(async move {
-            tokio::time::sleep(Duration::from_secs(5)).await;
-            if state.active_connections.load(Ordering::SeqCst) == 0 {
-                println!("all clients disconnected, shutting down");
-                let _ = state.shutdown_tx.send(true);
-            }
-        });
-    }
+    state.active_connections.fetch_sub(1, Ordering::SeqCst);
 }
 
-async fn shutdown_signal(mut shutdown_rx: watch::Receiver<bool>) {
-    loop {
-        if *shutdown_rx.borrow_and_update() {
-            return;
-        }
-        if shutdown_rx.changed().await.is_err() {
-            return;
-        }
-    }
+fn mpsc_channel_fallback() -> std::sync::mpsc::Receiver<tray::TrayEvent> {
+    let (_, rx) = std::sync::mpsc::channel();
+    rx
 }

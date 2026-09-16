@@ -11,6 +11,9 @@ __pycache__/
 *.py[cod]
 .venv/
 
+# Build output
+bin/
+
 # IDE
 .idea/
 .vscode/
@@ -19,6 +22,3 @@ __pycache__/
 # OS
 .DS_Store
 Thumbs.db
-
-# Build
-bin/
