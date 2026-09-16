@@ -28,15 +28,22 @@
     width: 34px;
     height: 34px;
     flex: 0 0 auto;
-    border: 1px solid var(--vha-glass-edge);
+    border: 1px solid transparent;
     border-radius: 11px;
-    background: var(--vha-surface);
+    background:
+      linear-gradient(145deg, rgba(255, 255, 255, 0.84), rgba(249, 250, 255, 0.66)) padding-box,
+      var(--vha-spectrum-soft) border-box;
     color: var(--vha-muted);
-    transition: transform 80ms ease, background-color 120ms ease, box-shadow 120ms ease;
+    box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.75);
+    transition: transform 80ms ease, background 120ms ease, box-shadow 120ms ease, color 120ms ease;
   }
 
   button:hover {
-    background: var(--vha-elevated);
+    background:
+      linear-gradient(145deg, #ffffff, #f7fbff) padding-box,
+      var(--vha-spectrum-line) border-box;
+    color: var(--vha-accent);
+    box-shadow: 0 4px 15px rgba(42, 48, 88, 0.09);
   }
 
   button:active {
@@ -44,14 +51,22 @@
   }
 
   button.selected {
-    background: var(--vha-selection-gradient);
+    background:
+      linear-gradient(145deg, #ffffff, #f3f8ff) padding-box,
+      var(--vha-spectrum-line) border-box;
     color: var(--vha-accent);
-    box-shadow: 0 4px 13px var(--vha-action-shadow);
+    box-shadow:
+      inset 0 0 16px rgba(40, 200, 216, 0.09),
+      0 4px 16px rgba(105, 77, 197, 0.14);
   }
 
   button.primary {
-    background: var(--vha-action-gradient);
-    color: white;
-    box-shadow: 0 4px 13px var(--vha-action-shadow);
+    background:
+      linear-gradient(145deg, #ffffff, #f7f5ff) padding-box,
+      var(--vha-spectrum-line) border-box;
+    color: var(--vha-accent);
+    box-shadow:
+      inset 0 1px 0 rgba(255, 255, 255, 0.95),
+      0 5px 18px rgba(105, 77, 197, 0.16);
   }
 </style>

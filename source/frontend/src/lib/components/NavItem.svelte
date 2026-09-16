@@ -45,15 +45,22 @@
   }
 
   button:hover {
-    background: var(--vha-elevated);
+    background:
+      linear-gradient(145deg, rgba(255, 255, 255, 0.88), rgba(248, 250, 255, 0.78)) padding-box,
+      var(--vha-spectrum-soft) border-box;
+    color: var(--vha-text);
+    box-shadow: 0 3px 13px rgba(42, 48, 88, 0.07);
   }
 
   button.selected {
-    border-color: var(--vha-glass-edge);
-    background: var(--vha-action-gradient);
-    color: white;
+    background:
+      linear-gradient(145deg, rgba(255, 255, 255, 0.97), rgba(246, 249, 255, 0.9)) padding-box,
+      var(--vha-spectrum-line) border-box;
+    color: var(--vha-accent);
     font-weight: 600;
-    box-shadow: 0 2px 18px var(--vha-action-shadow);
+    box-shadow:
+      inset 0 1px 0 rgba(255, 255, 255, 0.92),
+      0 4px 17px rgba(105, 77, 197, 0.13);
   }
 
   button.nested {
@@ -69,7 +76,7 @@
   }
 
   button.selected i {
-    background: white;
+    background: var(--vha-action-gradient);
   }
 
   span {
@@ -84,6 +91,6 @@
     width: 3px;
     height: 14px;
     border-radius: 2px;
-    background: rgba(255, 255, 255, 0.812);
+    background: var(--vha-action-gradient);
   }
 </style>

@@ -61,6 +61,6 @@
 
   .separator {
     height: 1px;
-    background: var(--vha-border);
+    background: var(--vha-spectrum-soft);
   }
 </style>

@@ -126,7 +126,7 @@
   .toolbar-divider {
     width: 1px;
     height: 18px;
-    background: var(--vha-border);
+    background: var(--vha-spectrum-soft);
   }
 
   :global(.sample-list),
@@ -163,17 +163,31 @@
     min-width: 44px;
     height: 26px;
     padding: 0 8px;
-    border: 1px solid var(--vha-border);
+    border: 1px solid transparent;
     border-radius: 8px;
-    background: var(--vha-surface);
+    background:
+      linear-gradient(145deg, rgba(255, 255, 255, 0.78), rgba(255, 255, 255, 0.6)) padding-box,
+      var(--vha-spectrum-soft) border-box;
     color: var(--vha-muted);
     font-size: 10.8px;
+    transition: background 120ms ease, box-shadow 120ms ease, color 120ms ease;
+  }
+
+  .tools button:hover {
+    background:
+      linear-gradient(145deg, #ffffff, #f8fbff) padding-box,
+      var(--vha-spectrum-line) border-box;
+    color: var(--vha-text);
+    box-shadow: 0 3px 12px rgba(42, 48, 88, 0.08);
   }
 
   .tools button.selected {
-    background: var(--vha-selection-gradient);
+    background:
+      linear-gradient(145deg, #ffffff, #f5f8ff) padding-box,
+      var(--vha-spectrum-line) border-box;
     color: var(--vha-accent);
     font-weight: 600;
+    box-shadow: inset 0 0 14px rgba(40, 200, 216, 0.08);
   }
 
   .canvas-container {
@@ -181,8 +195,11 @@
     flex: 1;
     min-height: 0;
     overflow: hidden;
-    border: 1px solid var(--vha-border);
+    border: 1px solid transparent;
     border-radius: 14px;
-    background: var(--vha-canvas-gradient);
+    background:
+      linear-gradient(145deg, rgba(255, 255, 255, 0.76), rgba(255, 255, 255, 0.56)) padding-box,
+      var(--vha-spectrum-soft) border-box;
+    box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.62);
   }
 </style>

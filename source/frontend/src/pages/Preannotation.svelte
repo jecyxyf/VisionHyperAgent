@@ -138,7 +138,7 @@
   .toolbar-divider {
     width: 1px;
     height: 18px;
-    background: var(--vha-border);
+    background: var(--vha-spectrum-soft);
   }
 
   :global(.analysis),
@@ -170,9 +170,11 @@
   input,
   textarea {
     width: 100%;
-    border: 1px solid var(--vha-border);
+    border: 1px solid transparent;
     border-radius: 10px;
-    background: var(--vha-field-gradient);
+    background:
+      linear-gradient(145deg, rgba(255, 255, 255, 0.84), rgba(255, 255, 255, 0.68)) padding-box,
+      var(--vha-spectrum-soft) border-box;
     color: var(--vha-text);
     padding: 8px 10px;
     font-size: 12.3px;
@@ -190,7 +192,10 @@
   input:focus,
   textarea:focus {
     outline: none;
-    border-color: var(--vha-accent);
+    background:
+      linear-gradient(145deg, #ffffff, #f8fbff) padding-box,
+      var(--vha-spectrum-line) border-box;
+    box-shadow: 0 0 0 3px rgba(124, 77, 255, 0.08);
   }
 
   .field-grid {

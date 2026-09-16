@@ -11,6 +11,8 @@ body {
   font-family: "Noto Sans CJK SC", "Noto Sans SC", Inter, system-ui, sans-serif;
   font-size: 14px;
   line-height: 1.45;
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
 }
 
 button,
@@ -27,6 +29,32 @@ button {
 }
 
 :focus-visible {
-  outline: 2px solid var(--vha-accent);
+  outline: 2px solid rgba(111, 75, 255, 0.78);
   outline-offset: 2px;
+}
+
+::selection {
+  background: rgba(124, 77, 255, 0.16);
+  color: var(--vha-text);
+}
+
+::placeholder {
+  color: var(--vha-subdued);
+  opacity: 1;
+}
+
+*::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+
+*::-webkit-scrollbar-thumb {
+  border: 2px solid transparent;
+  border-radius: 999px;
+  background: linear-gradient(180deg, rgba(124, 77, 255, 0.35), rgba(40, 200, 216, 0.3));
+  background-clip: padding-box;
+}
+
+*::-webkit-scrollbar-track {
+  background: transparent;
 }

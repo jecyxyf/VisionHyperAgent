@@ -109,7 +109,7 @@
 
   .separator {
     height: 1px;
-    background: var(--vha-border);
+    background: var(--vha-spectrum-soft);
   }
 
   .chat-body {
@@ -132,9 +132,21 @@
 
   article {
     padding: 12px;
-    border: 1px solid var(--vha-glass-edge);
+    border: 1px solid transparent;
     border-radius: 14px;
-    background: var(--vha-selection-gradient);
+    background:
+      linear-gradient(145deg, rgba(255, 255, 255, 0.82), rgba(255, 255, 255, 0.68)) padding-box,
+      var(--vha-spectrum-soft) border-box;
+    box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.68);
+  }
+
+  article.message {
+    background:
+      linear-gradient(145deg, #ffffff, rgba(248, 246, 255, 0.94)) padding-box,
+      var(--vha-spectrum-line) border-box;
+    box-shadow:
+      inset 0 1px 0 rgba(255, 255, 255, 0.92),
+      0 4px 16px rgba(105, 77, 197, 0.1);
   }
 
   article p {
@@ -151,18 +163,27 @@
   }
 
   .composer {
+    --composer-edge: var(--vha-spectrum-soft);
     flex: 0 0 132px;
     display: flex;
     flex-direction: column;
     gap: 10px;
     padding: 12px;
-    border: 1px solid var(--vha-border);
+    border: 1px solid transparent;
     border-radius: 16px;
-    background: var(--vha-field-gradient);
+    background:
+      linear-gradient(145deg, rgba(255, 255, 255, 0.86), rgba(255, 255, 255, 0.72)) padding-box,
+      var(--composer-edge) border-box;
+    box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.78);
+    transition: box-shadow 140ms ease;
   }
 
   .composer:focus-within {
-    border-color: var(--vha-accent);
+    --composer-edge: var(--vha-spectrum-line);
+    box-shadow:
+      inset 0 1px 0 rgba(255, 255, 255, 0.94),
+      0 0 0 3px rgba(124, 77, 255, 0.08),
+      0 8px 22px rgba(105, 77, 197, 0.11);
   }
 
   textarea {
@@ -171,6 +192,7 @@
     border: 0;
     outline: 0;
     background: transparent;
+    caret-color: var(--vha-accent);
     font-size: 12.2px;
   }
 

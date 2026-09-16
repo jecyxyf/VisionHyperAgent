@@ -23,10 +23,21 @@
     align-items: center;
     gap: 18px;
     padding: 0 24px 0 18px;
-    border: 1px solid rgba(255, 255, 255, 0.91);
+    border: 1px solid transparent;
     border-radius: 19px;
-    background: var(--vha-header-silver);
-    box-shadow: 0 6px 22px rgba(104, 67, 143, 0.18);
+    background:
+      linear-gradient(
+        110deg,
+        rgba(255, 255, 255, 0.96) 0%,
+        rgba(247, 245, 255, 0.92) 40%,
+        rgba(241, 250, 255, 0.93) 72%,
+        rgba(255, 251, 244, 0.92) 100%
+      ) padding-box,
+      var(--vha-spectrum-line) border-box;
+    backdrop-filter: blur(18px) saturate(150%);
+    box-shadow:
+      0 8px 26px rgba(42, 48, 88, 0.1),
+      inset 0 1px 0 rgba(255, 255, 255, 0.88);
   }
 
   .header-plate::after {
@@ -36,14 +47,14 @@
     border-radius: 18px;
     pointer-events: none;
     background:
-      linear-gradient(180deg, rgba(255, 255, 255, 0.8), rgba(255, 255, 255, 0.05) 50%, rgba(255, 255, 255, 0.58)),
+      linear-gradient(180deg, rgba(255, 255, 255, 0.76), rgba(255, 255, 255, 0.04) 50%, rgba(255, 255, 255, 0.54)),
       linear-gradient(
-        108deg,
-        transparent 40%,
-        rgba(229, 151, 240, 0.24) 54%,
-        rgba(255, 198, 209, 0.37) 65%,
-        rgba(250, 244, 255, 0.68) 77%,
-        rgba(120, 230, 241, 0.26) 91%
+        112deg,
+        transparent 34%,
+        rgba(124, 77, 255, 0.13) 47%,
+        rgba(244, 95, 168, 0.12) 58%,
+        rgba(255, 255, 255, 0.66) 72%,
+        rgba(40, 200, 216, 0.14) 88%
       );
   }
 
@@ -55,11 +66,15 @@
     width: 122px;
     height: 50px;
     flex: 0 0 auto;
-    border: 1px solid rgba(230, 203, 255, 0.863);
+    border: 1px solid transparent;
     border-radius: 13px;
-    background: var(--vha-header-badge);
-    box-shadow: 0 5px 18px rgba(130, 81, 206, 0.36);
-    color: white;
+    background:
+      linear-gradient(145deg, #ffffff, #f5f2ff) padding-box,
+      var(--vha-spectrum-line) border-box;
+    box-shadow:
+      inset 0 1px 0 rgba(255, 255, 255, 0.95),
+      0 5px 17px rgba(105, 77, 197, 0.15);
+    color: var(--vha-accent);
     font-family: "Nimbus Sans", Inter, sans-serif;
     font-size: 28.7px;
     font-style: italic;
@@ -88,6 +103,9 @@
   }
 
   span {
-    color: var(--vha-header-accent);
+    background: var(--vha-action-gradient);
+    -webkit-background-clip: text;
+    background-clip: text;
+    color: transparent;
   }
 </style>

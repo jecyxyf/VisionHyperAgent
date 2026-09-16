@@ -176,12 +176,16 @@
     position: absolute;
     inset: 0;
     pointer-events: none;
+    background-color: #fdfdff;
     background:
-      radial-gradient(circle at 7.5% 12%, rgba(120, 112, 245, 0.92), rgba(173, 168, 252, 0.64) 24%, transparent 46%),
-      radial-gradient(circle at 89.4% 17%, rgba(243, 95, 197, 0.8), rgba(255, 173, 230, 0.54) 25%, transparent 48%),
-      radial-gradient(circle at 1.9% 98%, rgba(67, 216, 233, 0.88), rgba(144, 234, 241, 0.63) 26%, transparent 49%),
-      radial-gradient(circle at 95% 104%, rgba(255, 173, 120, 0.86), rgba(255, 209, 165, 0.58) 25%, transparent 49%),
-      radial-gradient(circle at 48.8% 45%, rgba(255, 255, 255, 0.64), transparent 33%);
+      radial-gradient(circle at 7.5% 10%, rgba(124, 77, 255, 0.24), rgba(124, 77, 255, 0.09) 25%, transparent 47%),
+      radial-gradient(circle at 89.4% 15%, rgba(244, 95, 168, 0.19), rgba(244, 95, 168, 0.07) 26%, transparent 49%),
+      radial-gradient(circle at 1.9% 99%, rgba(40, 200, 216, 0.19), rgba(40, 200, 216, 0.07) 26%, transparent 49%),
+      radial-gradient(circle at 95.5% 105%, rgba(255, 182, 92, 0.19), rgba(255, 182, 92, 0.07) 25%, transparent 49%),
+      radial-gradient(circle at 58% 88%, rgba(53, 214, 168, 0.13), rgba(53, 214, 168, 0.05) 23%, transparent 45%),
+      radial-gradient(circle at 49% 46%, rgba(255, 255, 255, 0.9), transparent 35%),
+      linear-gradient(135deg, #ffffff 0%, #f7f7ff 45%, #f8fbff 100%);
+    animation: prismatic-drift 18s ease-in-out infinite alternate;
   }
 
   .workspace-grid {
@@ -199,7 +203,6 @@
     flex-direction: column;
     gap: 6px;
     padding: 16px 10px 10px;
-    background: var(--vha-surface);
   }
 
   .nav-gap { height: 14px; }
@@ -216,13 +219,20 @@
   .expandable:hover { background: var(--vha-elevated); }
 
   .expandable.selected {
-    border-color: var(--vha-glass-edge);
-    background: var(--vha-action-gradient);
-    color: white;
-    box-shadow: 0 2px 18px var(--vha-action-shadow);
+    background:
+      linear-gradient(145deg, rgba(255, 255, 255, 0.96), rgba(248, 247, 255, 0.9)) padding-box,
+      var(--vha-spectrum-line) border-box;
+    color: var(--vha-accent);
+    box-shadow:
+      inset 0 1px 0 rgba(255, 255, 255, 0.9),
+      0 5px 18px rgba(105, 77, 197, 0.13);
   }
 
-  .expandable.selected:hover { background: var(--vha-action-gradient); }
+  .expandable.selected:hover {
+    background:
+      linear-gradient(145deg, #ffffff, #f7fbff) padding-box,
+      var(--vha-spectrum-line) border-box;
+  }
 
   .model-main {
     flex: 1;
@@ -257,6 +267,15 @@
     position: absolute;
     inset: 18px;
     overflow: auto;
+  }
+
+  @keyframes prismatic-drift {
+    from {
+      transform: translate3d(-0.8%, -0.5%, 0) scale(1.01);
+    }
+    to {
+      transform: translate3d(0.8%, 0.5%, 0) scale(1.025);
+    }
   }
 
 </style>

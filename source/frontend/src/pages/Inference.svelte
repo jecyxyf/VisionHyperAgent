@@ -81,7 +81,7 @@
   .toolbar-divider {
     width: 1px;
     height: 18px;
-    background: var(--vha-border);
+    background: var(--vha-spectrum-soft);
   }
 
   .result-column {
@@ -112,13 +112,15 @@
     display: grid;
     place-items: center;
     overflow: hidden;
-    border: 1px solid var(--vha-border);
+    border: 1px solid transparent;
     border-radius: 14px;
     background:
-      var(--vha-canvas-gradient),
-      linear-gradient(rgba(102, 81, 167, 0.086) 1px, transparent 1px),
-      linear-gradient(90deg, rgba(102, 81, 167, 0.086) 1px, transparent 1px);
-    background-size: auto, 100% 32px, 32px 100%;
+      linear-gradient(145deg, rgba(255, 255, 255, 0.78), rgba(255, 255, 255, 0.58)) padding-box,
+      linear-gradient(rgba(124, 77, 255, 0.075) 1px, transparent 1px) padding-box,
+      linear-gradient(90deg, rgba(40, 200, 216, 0.07) 1px, transparent 1px) padding-box,
+      var(--vha-spectrum-soft) border-box;
+    background-size: auto, 100% 32px, 32px 100%, auto;
+    box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.68);
   }
 
   .meta-row {
@@ -161,7 +163,7 @@
 
   .separator {
     height: 1px;
-    background: var(--vha-border);
+    background: var(--vha-spectrum-soft);
   }
 
   .empty-record {

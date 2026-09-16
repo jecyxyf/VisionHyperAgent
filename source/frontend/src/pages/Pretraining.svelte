@@ -63,10 +63,26 @@
     align-self: flex-end;
     min-width: 116px;
     height: 34px;
-    border: 1px solid var(--vha-glass-edge);
+    border: 1px solid transparent;
     border-radius: 11px;
-    background: var(--vha-action-gradient);
-    color: white;
-    box-shadow: 0 4px 13px var(--vha-action-shadow);
+    background:
+      linear-gradient(145deg, #ffffff, #f7f5ff) padding-box,
+      var(--vha-spectrum-line) border-box;
+    color: var(--vha-accent);
+    font-weight: 600;
+    box-shadow:
+      inset 0 1px 0 rgba(255, 255, 255, 0.95),
+      0 5px 18px rgba(105, 77, 197, 0.15);
+    transition: box-shadow 120ms ease, transform 80ms ease;
+  }
+
+  button:hover {
+    box-shadow:
+      inset 0 1px 0 rgba(255, 255, 255, 0.95),
+      0 7px 22px rgba(105, 77, 197, 0.19);
+  }
+
+  button:active {
+    transform: translateY(1px);
   }
 </style>
