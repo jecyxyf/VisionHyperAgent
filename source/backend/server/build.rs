@@ -10,4 +10,5 @@ fn main() {
 
     println!("cargo:rerun-if-changed=resources/app.rc");
     println!("cargo:rerun-if-changed=resources/app.manifest");
+    println!("cargo:rerun-if-changed=assets/app-icon.ico");
 }

@@ -150,3 +150,39 @@ fn load_icon() -> Result<tray_icon::Icon, String> {
     tray_icon::Icon::from_rgba(pixels, output_info.width, output_info.height)
         .map_err(|error| format!("failed to create tray icon image: {error}"))
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn embedded_tray_icon_loads() {
+        assert!(load_icon().is_ok());
+    }
+
+    #[test]
+    fn embedded_tray_icon_is_square_rgba_with_transparent_margins() {
+        let mut reader = png::Decoder::new(Cursor::new(TRAY_ICON_PNG))
+            .read_info()
+            .expect("embedded PNG must be valid");
+        let mut pixels = vec![0_u8; reader.output_buffer_size()];
+        let info = reader.next_frame(&mut pixels).expect("PNG must decode");
+
+        assert_eq!((info.width, info.height), (64, 64));
+        assert_eq!(info.color_type, png::ColorType::Rgba);
+        assert_eq!(info.bit_depth, png::BitDepth::Eight);
+
+        let width = info.width as usize;
+        let height = info.height as usize;
+        let alpha = |x: usize, y: usize| pixels[(y * width + x) * 4 + 3];
+        for x in 0..width {
+            assert_eq!(alpha(x, 0), 0);
+            assert_eq!(alpha(x, height - 1), 0);
+        }
+        for y in 0..height {
+            assert_eq!(alpha(0, y), 0);
+            assert_eq!(alpha(width - 1, y), 0);
+        }
+        assert_eq!(alpha(width / 2, height / 2), 255);
+    }
+}
