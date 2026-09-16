@@ -20,6 +20,7 @@ enum HostEvent {
 
 /// Runs the system-tray event loop and stops the server when the user exits.
 pub fn run(url: &str, server: ServerHandle) -> Result<(), String> {
+    log::info!("initializing system tray");
     let mut event_loop = EventLoopBuilder::<HostEvent>::with_user_event().build();
 
     let tray_proxy = event_loop.create_proxy();
@@ -33,6 +34,7 @@ pub fn run(url: &str, server: ServerHandle) -> Result<(), String> {
     }));
 
     let (menu, open_item, exit_item) = build_menu()?;
+    log::debug!("system tray menu created");
     let mut tray = None;
     let mut startup_error = None;
 
@@ -43,12 +45,14 @@ pub fn run(url: &str, server: ServerHandle) -> Result<(), String> {
             Event::NewEvents(StartCause::Init) => match build_tray(&menu, url) {
                 Ok(icon) => {
                     tray = Some(icon);
+                    log::info!("system tray icon created");
 
                     if let Err(error) = browser::open(url) {
-                        eprintln!("{error}");
+                        log::error!("{error}");
                     }
                 }
                 Err(error) => {
+                    log::error!("failed to create system tray icon: {error}");
                     startup_error = Some(error);
                     *control_flow = ControlFlow::Exit;
                 }
@@ -59,7 +63,7 @@ pub fn run(url: &str, server: ServerHandle) -> Result<(), String> {
                 ..
             })) => {
                 if let Err(error) = browser::open(url) {
-                    eprintln!("{error}");
+                    log::error!("{error}");
                 }
             }
             Event::UserEvent(HostEvent::Menu(event)) => {
@@ -68,6 +72,7 @@ pub fn run(url: &str, server: ServerHandle) -> Result<(), String> {
                         eprintln!("{error}");
                     }
                 } else if event.id == exit_item.id() {
+                    log::info!("exit requested from system tray");
                     tray.take();
                     *control_flow = ControlFlow::Exit;
                 }
@@ -79,16 +84,23 @@ pub fn run(url: &str, server: ServerHandle) -> Result<(), String> {
     tray.take();
 
     if let Some(error) = startup_error {
+        log::error!("stopping HTTP server after tray startup failure: {error}");
         server.stop()?;
         return Err(error);
     }
 
     if exit_code != 0 {
+        log::error!("system tray event loop exited with code {exit_code}");
         server.stop()?;
         return Err(format!("event loop exited with code {exit_code}"));
     }
 
-    server.stop()
+    let result = server.stop();
+    if let Err(error) = &result {
+        log::error!("failed to stop HTTP server: {error}");
+    }
+
+    result
 }
 
 fn build_menu() -> Result<(Menu, MenuItem, MenuItem), String> {
@@ -98,13 +110,18 @@ fn build_menu() -> Result<(Menu, MenuItem, MenuItem), String> {
 
     menu.append(&open_item)
         .and_then(|()| menu.append(&exit_item))
-        .map_err(|error| format!("failed to build tray menu: {error}"))?;
+        .map_err(|error| {
+            let message = format!("failed to build tray menu: {error}");
+            log::error!("{message}");
+            message
+        })?;
 
     Ok((menu, open_item, exit_item))
 }
 
 fn build_tray(menu: &Menu, url: &str) -> Result<TrayIcon, String> {
     let icon = load_icon()?;
+    log::debug!("system tray icon image decoded");
 
     TrayIconBuilder::new()
         .with_menu(Box::new(menu.clone()))

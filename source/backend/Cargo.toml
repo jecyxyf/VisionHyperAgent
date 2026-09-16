@@ -1,6 +1,6 @@
 [workspace]
 resolver = "2"
-members = ["server", "core", "model/codex_agent"]
+members = ["common", "server", "core", "model/codex_agent"]
 
 [workspace.package]
 version = "0.1.0"

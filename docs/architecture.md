@@ -54,6 +54,22 @@ VisionHyperAgent 是 Agent 驱动的视觉模型桌面软件，五个核心流�
 └─────────────────────────────────────────────────────┘
 ~~~
 
+### 2.1 全局日志
+
+后端公共日志库位于 `source/backend/common`，由宿主进程在所有业务初始化之前加载。日志使用进程级全局单例，输出到可执行文件所在目录：
+
+~~~text
+<应用程序目录>/logs/VisionHyperAgent.YYYY-MM-DD.log
+~~~
+
+格式：
+
+~~~text
+YYYY-MM-DD HH:mm:ss.SSS [级别] [模块:行号] 日志内容
+~~~
+
+`DEBUG`、`WARNING`、`ERROR` 记录 `模块:行号`，`INFO` 不记录来源位置。默认 release 记录 `INFO`，debug 构建记录 `DEBUG`，可用环境变量 `VHA_LOG_LEVEL=error|warning|info|debug` 临时调整。日志不记录用户消息、附件内容和密钥。
+
 ## 3. 前后端通信
 
 ### 3.1 HTTP REST（低频操作）
@@ -105,8 +121,9 @@ VisionHyperAgent/
 │       └── pages/                 # 页面
 ├── source/backend/                       # Rust 后端
 │   ├── Cargo.toml                 # Workspace
-│   ├── server/                    # axum HTTP/WS 服务器
-│   ├── core/                      # 配置/日志/事件总线
+│   ├── common/                    # 全局日志等公共基础设施
+│   ├── server/                    # axum HTTP/WS 服务器与系统托盘
+│   ├── core/                      # 配置/事件总线
 │   └── model/
 │       └── codex_agent/           # Codex App Server WebSocket 客户端
 └── bin/                           # 编译产物

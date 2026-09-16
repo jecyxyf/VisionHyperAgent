@@ -1,0 +1,10 @@
+[package]
+name = "vha-common"
+description = "Shared infrastructure for VisionHyperAgent backend services"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+chrono = "0.4"
+log = "0.4"

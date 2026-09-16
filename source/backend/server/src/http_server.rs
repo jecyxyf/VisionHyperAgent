@@ -23,6 +23,7 @@ pub struct ServerHandle {
 impl ServerHandle {
     /// Requests graceful shutdown and waits until the server thread finishes.
     pub fn stop(mut self) -> Result<(), String> {
+        log::info!("requesting HTTP server shutdown");
         self.shutdown
             .request_shutdown()
             .then_some(())
@@ -33,9 +34,11 @@ impl ServerHandle {
             .take()
             .ok_or_else(|| "server thread is missing".to_string())?;
 
-        thread
-            .join()
-            .map_err(|error| format!("server thread panicked: {error:?}"))
+        thread.join().map_err(|error| {
+            let message = format!("server thread panicked: {error:?}");
+            log::error!("{message}");
+            message
+        })
     }
 }
 
@@ -65,6 +68,7 @@ pub fn start(addr: SocketAddr) -> Result<ServerHandle, String> {
             {
                 Ok(runtime) => runtime,
                 Err(error) => {
+                    log::error!("failed to create HTTP server runtime: {error}");
                     let _ = startup_tx.send(Err(format!("failed to create runtime: {error}")));
                     return;
                 }
@@ -73,6 +77,7 @@ pub fn start(addr: SocketAddr) -> Result<ServerHandle, String> {
             let listener = match runtime.block_on(tokio::net::TcpListener::bind(addr)) {
                 Ok(listener) => listener,
                 Err(error) => {
+                    log::error!("failed to bind HTTP server on {addr}: {error}");
                     let _ = startup_tx.send(Err(format!("failed to bind {addr}: {error}")));
                     return;
                 }
@@ -84,22 +89,28 @@ pub fn start(addr: SocketAddr) -> Result<ServerHandle, String> {
 
             let signal = ShutdownSignal::from_controller(&thread_shutdown);
             if let Err(error) = runtime.block_on(run_server(listener, signal)) {
-                eprintln!("local server stopped with an error: {error}");
+                log::error!("local HTTP server stopped with an error: {error}");
             }
         })
         .map_err(|error| format!("failed to spawn server thread: {error}"))?;
 
+    log::info!("starting local HTTP server on {addr}");
+
     match startup_rx.recv() {
-        Ok(Ok(())) => Ok(ServerHandle {
-            shutdown,
-            thread: Some(thread),
-        }),
+        Ok(Ok(())) => {
+            log::info!("local HTTP server started on {addr}");
+            Ok(ServerHandle {
+                shutdown,
+                thread: Some(thread),
+            })
+        }
         Ok(Err(error)) => {
             let _ = thread.join();
             Err(error)
         }
         Err(_) => {
             let _ = thread.join();
+            log::error!("HTTP server thread exited before startup completed");
             Err("server exited before reporting startup status".to_string())
         }
     }
