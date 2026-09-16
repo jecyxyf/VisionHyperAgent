@@ -309,9 +309,12 @@
           <span>Effort</span>
           <span class="select-shell">
             <select bind:value={selectedEffort} aria-label="选择 Agent Effort">
-              <option value="low">低</option>
-              <option value="medium">中</option>
-              <option value="high">高</option>
+              <option value="low">low</option>
+              <option value="medium">medium</option>
+              <option value="high">high</option>
+              <option value="xhigh">xhigh</option>
+              <option value="max">max</option>
+              <option value="ultra">ultra</option>
             </select>
             <Icon name="chevron" size={12} />
           </span>
