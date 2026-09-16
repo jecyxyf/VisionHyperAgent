@@ -27,14 +27,12 @@
 
   .glass {
     background:
-      radial-gradient(circle at 14% 9%, rgba(124, 77, 255, 0.055), transparent 27%) padding-box,
-      radial-gradient(circle at 87% 12%, rgba(244, 95, 168, 0.04), transparent 29%) padding-box,
-      radial-gradient(circle at 8% 93%, rgba(40, 200, 216, 0.045), transparent 27%) padding-box,
+      var(--vha-white-prism) padding-box,
       linear-gradient(
         145deg,
-        rgba(255, 255, 255, 0.85) 0%,
-        rgba(255, 255, 255, 0.7) 54%,
-        rgba(255, 255, 255, 0.8) 100%
+        rgba(255, 255, 255, 0.92) 0%,
+        rgba(255, 255, 255, 0.78) 54%,
+        rgba(255, 255, 255, 0.87) 100%
       ) padding-box,
       var(--vha-spectrum-line) border-box;
     backdrop-filter: blur(18px) saturate(150%);
@@ -67,11 +65,11 @@
 
   .inset {
     background:
-      radial-gradient(circle at 13% 8%, rgba(124, 77, 255, 0.04), transparent 30%) padding-box,
+      var(--vha-white-prism) padding-box,
       linear-gradient(
         145deg,
-        rgba(255, 255, 255, 0.75) 0%,
-        rgba(255, 255, 255, 0.6) 100%
+        rgba(255, 255, 255, 0.86) 0%,
+        rgba(255, 255, 255, 0.7) 100%
       ) padding-box,
       linear-gradient(
         118deg,

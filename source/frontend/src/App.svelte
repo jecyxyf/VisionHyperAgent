@@ -176,15 +176,15 @@
     position: absolute;
     inset: 0;
     pointer-events: none;
-    background-color: #fdfdff;
+    background-color: #fefeff;
     background:
-      radial-gradient(circle at 7.5% 10%, rgba(124, 77, 255, 0.24), rgba(124, 77, 255, 0.09) 25%, transparent 47%),
-      radial-gradient(circle at 89.4% 15%, rgba(244, 95, 168, 0.19), rgba(244, 95, 168, 0.07) 26%, transparent 49%),
-      radial-gradient(circle at 1.9% 99%, rgba(40, 200, 216, 0.19), rgba(40, 200, 216, 0.07) 26%, transparent 49%),
-      radial-gradient(circle at 95.5% 105%, rgba(255, 182, 92, 0.19), rgba(255, 182, 92, 0.07) 25%, transparent 49%),
-      radial-gradient(circle at 58% 88%, rgba(53, 214, 168, 0.13), rgba(53, 214, 168, 0.05) 23%, transparent 45%),
-      radial-gradient(circle at 49% 46%, rgba(255, 255, 255, 0.9), transparent 35%),
-      linear-gradient(135deg, #ffffff 0%, #f7f7ff 45%, #f8fbff 100%);
+      radial-gradient(circle at 7.5% 10%, rgba(124, 77, 255, 0.16), rgba(124, 77, 255, 0.055) 25%, transparent 47%),
+      radial-gradient(circle at 89.4% 15%, rgba(244, 95, 168, 0.125), rgba(244, 95, 168, 0.045) 26%, transparent 49%),
+      radial-gradient(circle at 1.9% 99%, rgba(40, 200, 216, 0.125), rgba(40, 200, 216, 0.045) 26%, transparent 49%),
+      radial-gradient(circle at 95.5% 105%, rgba(255, 182, 92, 0.125), rgba(255, 182, 92, 0.045) 25%, transparent 49%),
+      radial-gradient(circle at 58% 88%, rgba(53, 214, 168, 0.085), rgba(53, 214, 168, 0.03) 23%, transparent 45%),
+      radial-gradient(circle at 49% 46%, rgba(255, 255, 255, 0.96), transparent 37%),
+      linear-gradient(135deg, #ffffff 0%, #fbfbff 47%, #fbfdff 100%);
     animation: prismatic-drift 18s ease-in-out infinite alternate;
   }
 

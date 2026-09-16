@@ -26,12 +26,13 @@
     border: 1px solid transparent;
     border-radius: 19px;
     background:
+      var(--vha-white-prism) padding-box,
       linear-gradient(
         110deg,
-        rgba(255, 255, 255, 0.96) 0%,
-        rgba(247, 245, 255, 0.92) 40%,
-        rgba(241, 250, 255, 0.93) 72%,
-        rgba(255, 251, 244, 0.92) 100%
+        rgba(255, 255, 255, 0.98) 0%,
+        rgba(252, 251, 255, 0.95) 40%,
+        rgba(250, 253, 255, 0.96) 72%,
+        rgba(255, 253, 249, 0.95) 100%
       ) padding-box,
       var(--vha-spectrum-line) border-box;
     backdrop-filter: blur(18px) saturate(150%);

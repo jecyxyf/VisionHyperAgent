@@ -1,6 +1,6 @@
 :root {
   /* Prismatic White: white glass carries the UI, color lives in refracted edges. */
-  --vha-background: #f8f9ff;
+  --vha-background: #fcfdff;
   --vha-glass-strong: rgba(255, 255, 255, 0.93);
   --vha-glass-edge: rgba(255, 255, 255, 0.94);
   --vha-surface: rgba(255, 255, 255, 0.48);
@@ -19,11 +19,11 @@
 
   --vha-spectrum-line: linear-gradient(
     118deg,
-    rgba(124, 77, 255, 0.76) 0%,
-    rgba(244, 95, 168, 0.62) 25%,
-    rgba(40, 200, 216, 0.66) 51%,
-    rgba(53, 214, 168, 0.58) 74%,
-    rgba(255, 182, 92, 0.56) 100%
+    rgba(124, 77, 255, 0.66) 0%,
+    rgba(244, 95, 168, 0.54) 25%,
+    rgba(40, 200, 216, 0.58) 51%,
+    rgba(53, 214, 168, 0.5) 74%,
+    rgba(255, 182, 92, 0.48) 100%
   );
   --vha-spectrum-soft: linear-gradient(
     118deg,
@@ -36,10 +36,20 @@
 
   --vha-glass-gradient: linear-gradient(
     145deg,
-    rgba(255, 255, 255, 0.83) 0%,
-    rgba(255, 255, 255, 0.68) 54%,
-    rgba(255, 255, 255, 0.78) 100%
+    rgba(255, 255, 255, 0.92) 0%,
+    rgba(255, 255, 255, 0.78) 54%,
+    rgba(255, 255, 255, 0.87) 100%
   );
+  /* Color is dissolved into the white body instead of sitting on top of it. */
+  --vha-white-prism: radial-gradient(
+      circle at 16% 9%,
+      rgba(124, 77, 255, 0.042),
+      transparent 28%
+    ),
+    radial-gradient(circle at 86% 11%, rgba(244, 95, 168, 0.034), transparent 30%),
+    radial-gradient(circle at 7% 91%, rgba(40, 200, 216, 0.036), transparent 28%),
+    radial-gradient(circle at 62% 96%, rgba(53, 214, 168, 0.028), transparent 30%),
+    radial-gradient(circle at 95% 88%, rgba(255, 182, 92, 0.028), transparent 27%);
   --vha-action-gradient: linear-gradient(
     118deg,
     #6848ff 0%,
