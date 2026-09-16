@@ -1,7 +1,24 @@
 # Rust
+backend/target/
 target/
+
+# Node
+frontend/node_modules/
+frontend/dist/
 
 # Python
 __pycache__/
 *.py[cod]
 .venv/
+
+# IDE
+.idea/
+.vscode/
+*.swp
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Build
+bin/
