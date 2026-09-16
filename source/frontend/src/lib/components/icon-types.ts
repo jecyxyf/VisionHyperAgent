@@ -1,0 +1,17 @@
+export type IconName =
+  | "about"
+  | "camera"
+  | "check"
+  | "chevron"
+  | "edit"
+  | "folder"
+  | "grid"
+  | "next"
+  | "play"
+  | "scan"
+  | "send"
+  | "settings"
+  | "spark"
+  | "stop"
+  | "train"
+  | "trash";

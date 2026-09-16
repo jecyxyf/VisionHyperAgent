@@ -1,0 +1,57 @@
+:root {
+  --vha-background: #eeebfa;
+  --vha-glass-strong: rgba(255, 255, 255, 0.949);
+  --vha-glass-edge: rgba(255, 255, 255, 0.859);
+  --vha-surface: rgba(255, 255, 255, 0.329);
+  --vha-elevated: rgba(255, 255, 255, 0.741);
+  --vha-border: rgba(101, 82, 171, 0.157);
+  --vha-text: #29294e;
+  --vha-muted: #545579;
+  --vha-subdued: #686b89;
+  --vha-accent: #6545ce;
+  --vha-header-ink: #30214e;
+  --vha-header-accent: #a032b7;
+
+  --vha-glass-gradient: linear-gradient(
+    145deg,
+    rgba(255, 255, 255, 0.651) 0%,
+    rgba(255, 255, 255, 0.408) 52%,
+    rgba(255, 255, 255, 0.522) 100%
+  );
+  --vha-action-gradient: linear-gradient(125deg, #505be4 0%, #8148d5 58%, #b54cc1 100%);
+  --vha-selection-gradient: linear-gradient(
+    120deg,
+    rgba(213, 202, 255, 0.722) 0%,
+    rgba(244, 204, 245, 0.612) 100%
+  );
+  --vha-field-gradient: linear-gradient(
+    145deg,
+    rgba(255, 255, 255, 0.741) 0%,
+    rgba(255, 255, 255, 0.447) 100%
+  );
+  --vha-canvas-gradient: linear-gradient(
+    145deg,
+    rgba(255, 255, 255, 0.439) 0%,
+    rgba(255, 255, 255, 0.259) 100%
+  );
+  --vha-header-silver: linear-gradient(
+    110deg,
+    rgba(207, 219, 255, 0.878) 0%,
+    rgba(241, 212, 253, 0.82) 46%,
+    rgba(214, 245, 240, 0.878) 100%
+  );
+  --vha-header-badge: linear-gradient(125deg, #555cec 0%, #9346d8 56%, #d44ea9 100%);
+  --vha-shadow: rgba(73, 57, 130, 0.137);
+  --vha-action-shadow: rgba(119, 84, 205, 0.29);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}
