@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { onMount } from "svelte";
   import AgentPanel from "./lib/components/AgentPanel.svelte";
   import AppHeader from "./lib/components/AppHeader.svelte";
   import GlassPanel from "./lib/components/GlassPanel.svelte";
@@ -12,6 +13,7 @@
   import PreannotationPage from "./pages/Preannotation.svelte";
   import PretrainingPage from "./pages/Pretraining.svelte";
   import SettingsPage from "./pages/Settings.svelte";
+  import Splitter from "./lib/components/Splitter.svelte";
   import TrainingPage from "./pages/Training.svelte";
 
   type Page =
@@ -28,6 +30,10 @@
 
   let currentPage = $state<Page>("inference");
   let modelsExpanded = $state(true);
+  let workspaceGrid = $state<HTMLElement | null>(null);
+  const initialViewportWidth = typeof window === "undefined" ? 1440 : window.innerWidth;
+  let navigationWidth = $state(140);
+  let agentWidth = $state(Math.max(260, Math.floor((initialViewportWidth - 64 - 140) / 3)));
   let statusMessage = $state("");
   let statusTimer: ReturnType<typeof setTimeout> | null = null;
 
@@ -43,13 +49,40 @@
     if (statusTimer) clearTimeout(statusTimer);
     statusTimer = setTimeout(() => (statusMessage = ""), 5000);
   }
+
+  function resizeNavigation(nextWidth: number) {
+    navigationWidth = nextWidth;
+  }
+
+  function resizeAgent(nextWidth: number) {
+    agentWidth = nextWidth;
+  }
+
+  function clampPanelWidths() {
+    const availableWidth = workspaceGrid?.clientWidth ?? initialViewportWidth - 32;
+    navigationWidth = Math.min(
+      Math.max(140, navigationWidth),
+      Math.max(140, availableWidth - 32 - 540 - 260),
+    );
+    agentWidth = Math.min(
+      Math.max(260, agentWidth),
+      Math.max(260, availableWidth - 32 - 540 - navigationWidth),
+    );
+  }
+
+  onMount(() => {
+    clampPanelWidths();
+    window.addEventListener("resize", clampPanelWidths);
+
+    return () => window.removeEventListener("resize", clampPanelWidths);
+  });
 </script>
 
 <div class="app-shell">
   <div class="ambient" aria-hidden="true"></div>
   <AppHeader />
 
-  <main class="workspace-grid">
+  <main class="workspace-grid" bind:this={workspaceGrid} style={`grid-template-columns: ${navigationWidth}px 16px minmax(540px, 1fr) 16px ${agentWidth}px;`}>
     <GlassPanel class="navigation">
       <NavItem text="运行" icon="play" selected={currentPage === "inference"} onclick={() => (currentPage = "inference")} />
       <div class="nav-gap"></div>
@@ -81,7 +114,13 @@
       <NavItem text="关于" icon="about" selected={currentPage === "about"} onclick={() => (currentPage = "about")} />
     </GlassPanel>
 
-    <i class="splitter" aria-hidden="true"></i>
+    <Splitter
+      value={navigationWidth}
+      minimum={140}
+      maximum={Math.max(140, (workspaceGrid?.clientWidth ?? initialViewportWidth - 32) - 32 - 540 - 260)}
+      label="调整导航面板宽度"
+      onResize={resizeNavigation}
+    />
 
     <GlassPanel class="workspace">
       <div class="page-container">
@@ -92,7 +131,7 @@
         {:else if currentPage === "preannotation"}
           <PreannotationPage onAction={showNotice} />
         {:else if currentPage === "annotation"}
-          <AnnotationPage />
+          <AnnotationPage onAction={showNotice} />
         {:else if currentPage === "pretraining"}
           <PretrainingPage onAction={showNotice} />
         {:else if currentPage === "training"}
@@ -105,7 +144,14 @@
       </div>
     </GlassPanel>
 
-    <i class="splitter" aria-hidden="true"></i>
+    <Splitter
+      value={agentWidth}
+      minimum={260}
+      maximum={Math.max(260, (workspaceGrid?.clientWidth ?? initialViewportWidth - 32) - 32 - 540 - navigationWidth)}
+      label="调整 Agent 面板宽度"
+      reverse={true}
+      onResize={resizeAgent}
+    />
     <AgentPanel />
   </main>
 
@@ -213,13 +259,4 @@
     overflow: auto;
   }
 
-  .splitter { display: grid; place-items: center; }
-
-  .splitter::before {
-    width: 2px;
-    height: 44px;
-    border-radius: 2px;
-    background: rgba(101, 82, 171, 0.16);
-    content: "";
-  }
 </style>

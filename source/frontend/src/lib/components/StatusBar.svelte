@@ -7,7 +7,7 @@
 {#if message}
   <aside class="status" role="status">
     <p>{message}</p>
-    <IconButton label="关闭提示" icon="stop" onclick={onDismiss} />
+    <IconButton label="关闭提示" icon="close" onclick={onDismiss} />
   </aside>
 {/if}
 

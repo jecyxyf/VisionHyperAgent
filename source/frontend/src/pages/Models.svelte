@@ -1,25 +1,31 @@
 <script lang="ts">
   import EmptyState from "../lib/components/EmptyState.svelte";
   import GlassPanel from "../lib/components/GlassPanel.svelte";
+  import IconButton from "../lib/components/IconButton.svelte";
   import PageHeader from "../lib/components/PageHeader.svelte";
 
   let { onAction }: { onAction: (message: string) => void } = $props();
 </script>
 
 <div class="models-page">
-  <PageHeader title="模型" icon="train" />
+  <PageHeader title="模型" icon="train">
+    <IconButton label="选择模型目录" icon="folder" onclick={() => onAction("暂时无法选择模型目录。")} />
+    <i class="toolbar-divider" aria-hidden="true"></i>
+    <IconButton label="刷新模型列表" icon="refresh" onclick={() => onAction("暂时无法读取模型目录。")} />
+  </PageHeader>
+
   <GlassPanel inset class="library">
     <EmptyState
       icon="folder"
       title="模型库为空"
       detail="完成训练后模型会自动进入这里；也可以稍后导入已有模型。"
     />
-    <button type="button" onclick={() => onAction("模型导入暂不可用。")}>导入模型</button>
   </GlassPanel>
 </div>
 
 <style>
   .models-page {
+    height: 100%;
     display: flex;
     flex-direction: column;
     gap: 16px;
@@ -35,17 +41,9 @@
     padding: 18px;
   }
 
-  button {
-    min-width: 112px;
-    height: 34px;
-    border: 1px solid var(--vha-glass-edge);
-    border-radius: 11px;
-    background: var(--vha-action-gradient);
-    color: white;
-    box-shadow: 0 4px 13px var(--vha-action-shadow);
-  }
-
-  button:active {
-    transform: translateY(1px);
+  .toolbar-divider {
+    width: 1px;
+    height: 18px;
+    background: var(--vha-border);
   }
 </style>

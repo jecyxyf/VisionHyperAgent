@@ -3,8 +3,17 @@
   import GlassPanel from "../lib/components/GlassPanel.svelte";
   import IconButton from "../lib/components/IconButton.svelte";
   import PageHeader from "../lib/components/PageHeader.svelte";
+  import Splitter from "../lib/components/Splitter.svelte";
 
   let { onAction }: { onAction: (message: string) => void } = $props();
+  let resultHeight = $state(0);
+  let recordsHeight = $state(138);
+  let recordsMaximum = $state(520);
+
+  $effect(() => {
+    recordsMaximum = Math.max(120, resultHeight - 12 - 240);
+    if (recordsHeight > recordsMaximum) recordsHeight = recordsMaximum;
+  });
 </script>
 
 <div class="inference-page">
@@ -16,7 +25,11 @@
     <IconButton label="单次推理" icon="play" primary onclick={() => onAction("推理功能暂不可用。")} />
   </PageHeader>
 
-  <div class="result-column">
+  <div
+    class="result-column"
+    bind:clientHeight={resultHeight}
+    style={`grid-template-rows: minmax(240px, 1fr) 12px ${recordsHeight}px;`}
+  >
     <GlassPanel inset class="image-panel">
       <div class="panel-title">图像结果</div>
       <div class="image-canvas">
@@ -31,7 +44,15 @@
       </div>
     </GlassPanel>
 
-    <i class="split-handle" aria-hidden="true"></i>
+    <Splitter
+      value={recordsHeight}
+      minimum={120}
+      maximum={recordsMaximum}
+      label="识别记录高度"
+      orientation="horizontal"
+      reverse={true}
+      onResize={(height) => (recordsHeight = height)}
+    />
 
     <GlassPanel inset class="records-panel">
       <div class="records-head">
@@ -49,6 +70,7 @@
 
 <style>
   .inference-page {
+    height: 100%;
     display: flex;
     flex-direction: column;
     gap: 16px;
@@ -66,7 +88,6 @@
     flex: 1;
     min-height: 0;
     display: grid;
-    grid-template-rows: minmax(0, 1fr) 12px 138px;
   }
 
   :global(.image-panel),
@@ -118,10 +139,6 @@
   .meta-row span:nth-child(4) {
     margin-left: auto;
     color: var(--vha-subdued);
-  }
-
-  .split-handle {
-    min-height: 12px;
   }
 
   .records-head {

@@ -3,20 +3,42 @@
   import GlassPanel from "../lib/components/GlassPanel.svelte";
   import IconButton from "../lib/components/IconButton.svelte";
   import PageHeader from "../lib/components/PageHeader.svelte";
+  import Splitter from "../lib/components/Splitter.svelte";
 
   let { onAction }: { onAction: (message: string) => void } = $props();
   let target = $state("");
   let appearance = $state("");
+  let bodyWidth = $state(0);
+  let analysisColumnHeight = $state(0);
+  let editorWidth = $state(300);
+  let analysisHeight = $state(220);
+  let editorMaximum = $state(700);
+  let analysisMaximum = $state(420);
+
+  $effect(() => {
+    editorMaximum = Math.max(220, bodyWidth - 12 - 240);
+    if (editorWidth > editorMaximum) editorWidth = editorMaximum;
+  });
+
+  $effect(() => {
+    analysisMaximum = Math.max(180, analysisColumnHeight - 12 - 180);
+    if (analysisHeight > analysisMaximum) analysisHeight = analysisMaximum;
+  });
 </script>
 
 <div class="preannotation-page">
   <PageHeader title="预标注" icon="spark">
     <IconButton label="分析特征" icon="spark" onclick={() => onAction("Agent 分析暂不可用。")} />
     <IconButton label="确认标注规则" icon="check" onclick={() => onAction("请先完成特征分析。")} />
+    <i class="toolbar-divider" aria-hidden="true"></i>
     <IconButton label="进入标注" icon="next" primary onclick={() => onAction("请先确认标注规则。")} />
   </PageHeader>
 
-  <div class="body">
+  <div
+    class="body"
+    bind:clientWidth={bodyWidth}
+    style={`grid-template-columns: ${editorWidth}px 12px minmax(240px, 1fr);`}
+  >
     <GlassPanel inset class="editor">
       <h3>特征描述</h3>
       <label>
@@ -39,11 +61,33 @@
       </div>
     </GlassPanel>
 
-    <div class="analysis-column">
+    <Splitter
+      value={editorWidth}
+      minimum={220}
+      maximum={editorMaximum}
+      label="特征描述宽度"
+      onResize={(width) => (editorWidth = width)}
+    />
+
+    <div
+      class="analysis-column"
+      bind:clientHeight={analysisColumnHeight}
+      style={`grid-template-rows: ${analysisHeight}px 12px minmax(180px, 1fr);`}
+    >
       <GlassPanel inset class="analysis">
         <h3>Agent 分析</h3>
         <EmptyState icon="spark" title="等待分析" detail="填写识别目标和外观特征后开始分析。" />
       </GlassPanel>
+
+      <Splitter
+        value={analysisHeight}
+        minimum={180}
+        maximum={analysisMaximum}
+        label="Agent 分析高度"
+        orientation="horizontal"
+        onResize={(height) => (analysisHeight = height)}
+      />
+
       <GlassPanel inset class="rules">
         <h3>标注规则</h3>
         <EmptyState icon="check" title="等待规则" detail="规则确认后会带入标注页面。" />
@@ -54,6 +98,7 @@
 
 <style>
   .preannotation-page {
+    height: 100%;
     display: flex;
     flex-direction: column;
     gap: 16px;
@@ -65,8 +110,7 @@
     flex: 1;
     min-height: 0;
     display: grid;
-    grid-template-columns: minmax(220px, 300px) minmax(0, 1fr);
-    gap: 12px;
+    grid-template-columns: 300px 12px minmax(240px, 1fr);
   }
 
   :global(.editor),
@@ -88,8 +132,13 @@
     min-width: 0;
     min-height: 0;
     display: grid;
-    grid-template-rows: minmax(180px, 1fr) minmax(180px, 1fr);
-    gap: 12px;
+    grid-template-rows: 220px 12px minmax(180px, 1fr);
+  }
+
+  .toolbar-divider {
+    width: 1px;
+    height: 18px;
+    background: var(--vha-border);
   }
 
   :global(.analysis),

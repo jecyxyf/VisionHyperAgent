@@ -3,12 +3,30 @@
   import { AnnotationCanvas } from "../lib/canvas/AnnotationCanvas";
   import EmptyState from "../lib/components/EmptyState.svelte";
   import GlassPanel from "../lib/components/GlassPanel.svelte";
+  import IconButton from "../lib/components/IconButton.svelte";
   import PageHeader from "../lib/components/PageHeader.svelte";
+  import Splitter from "../lib/components/Splitter.svelte";
 
+  let { onAction }: { onAction: (message: string) => void } = $props();
   let container: HTMLElement;
   let canvas: AnnotationCanvas | null = null;
   let resizeObserver: ResizeObserver | null = null;
   let activeTool = $state("画笔");
+  let bodyWidth = $state(0);
+  let sampleWidth = $state(160);
+  let labelWidth = $state(220);
+  let sampleMaximum = $state(420);
+  let labelMaximum = $state(480);
+
+  $effect(() => {
+    sampleMaximum = Math.max(116, bodyWidth - 24 - 160);
+    if (sampleWidth > sampleMaximum) sampleWidth = sampleMaximum;
+  });
+
+  $effect(() => {
+    labelMaximum = Math.max(160, bodyWidth - 24 - sampleWidth);
+    if (labelWidth > labelMaximum) labelWidth = labelMaximum;
+  });
 
   onMount(() => {
     canvas = new AnnotationCanvas(container);
@@ -30,12 +48,33 @@
 </script>
 
 <div class="annotation-page">
-  <PageHeader title="标注" icon="edit" />
-  <div class="body">
+  <PageHeader title="标注" icon="edit">
+    <IconButton label="打开图片目录" icon="folder" onclick={() => onAction("暂时无法打开图片目录。")} />
+    <i class="toolbar-divider" aria-hidden="true"></i>
+    <IconButton label="批量浏览" icon="grid" onclick={() => onAction("当前没有图片。")} />
+    <IconButton label="逐图标注" icon="edit" onclick={() => onAction("当前没有图片。")} />
+    <i class="toolbar-divider" aria-hidden="true"></i>
+    <IconButton label="Agent 生成初标" icon="spark" onclick={() => onAction("Agent 未连接，无法生成标注。")} />
+    <IconButton label="确认标注" icon="check" onclick={() => onAction("没有可确认的标注。")} />
+  </PageHeader>
+
+  <div
+    class="body"
+    bind:clientWidth={bodyWidth}
+    style={`grid-template-columns: ${sampleWidth}px 12px minmax(0, 1fr) 12px ${labelWidth}px;`}
+  >
     <GlassPanel inset class="sample-list">
       <h3>样本列表</h3>
       <EmptyState icon="folder" title="等待样本" detail="完成预标注后进入样本队列。" />
     </GlassPanel>
+
+    <Splitter
+      value={sampleWidth}
+      minimum={116}
+      maximum={sampleMaximum}
+      label="样本列表宽度"
+      onResize={(width) => (sampleWidth = width)}
+    />
 
     <GlassPanel inset class="canvas-panel">
       <div class="canvas-head">
@@ -51,6 +90,15 @@
       <div class="canvas-container" bind:this={container}></div>
     </GlassPanel>
 
+    <Splitter
+      value={labelWidth}
+      minimum={160}
+      maximum={labelMaximum}
+      label="标签属性宽度"
+      reverse={true}
+      onResize={(width) => (labelWidth = width)}
+    />
+
     <GlassPanel inset class="label-panel">
       <h3>标签与属性</h3>
       <EmptyState icon="check" title="等待规则" detail="确认规则后显示可编辑标签。" />
@@ -60,6 +108,7 @@
 
 <style>
   .annotation-page {
+    height: 100%;
     display: flex;
     flex-direction: column;
     gap: 16px;
@@ -71,8 +120,13 @@
     flex: 1;
     min-height: 0;
     display: grid;
-    grid-template-columns: minmax(116px, 160px) minmax(0, 1fr) minmax(160px, 220px);
-    gap: 12px;
+    grid-template-columns: 160px 12px minmax(0, 1fr) 12px 220px;
+  }
+
+  .toolbar-divider {
+    width: 1px;
+    height: 18px;
+    background: var(--vha-border);
   }
 
   :global(.sample-list),
