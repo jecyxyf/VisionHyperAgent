@@ -84,7 +84,7 @@ VisionHyperAgent 是 Agent 驱动的视觉模型桌面软件，五个核心流�
 ~~~
 VisionHyperAgent/
 ├── docs/                          # 架构文档
-├── frontend/                      # TypeScript Web 前端
+├── source/frontend/                      # TypeScript Web 前端
 │   ├── package.json
 │   ├── vite.config.ts
 │   └── src/
@@ -100,7 +100,7 @@ VisionHyperAgent/
 │       │   ├── training/          # 训练监控
 │       │   └── common/            # 通用 UI
 │       └── pages/                 # 页面
-├── backend/                       # Rust 后端
+├── source/backend/                       # Rust 后端
 │   ├── Cargo.toml                 # Workspace
 │   ├── server/                    # axum HTTP/WS 服务器
 │   ├── core/                      # 配置/日志/事件总线

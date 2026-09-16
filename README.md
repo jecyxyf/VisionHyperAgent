@@ -14,7 +14,7 @@ Agent 驱动的视觉模型桌面软件。
 ### 后端
 
 ~~~bash
-cd backend
+cd source/backend
 cargo run --bin vha-server
 # 输出: VisionHyperAgent running at http://127.0.0.1:8420
 ~~~
@@ -22,7 +22,7 @@ cargo run --bin vha-server
 ### 前端
 
 ~~~bash
-cd frontend
+cd source/frontend
 npm install
 npm run dev
 # 打开 http://localhost:5173（开发模式，代理到后端 8420）
@@ -31,8 +31,8 @@ npm run dev
 ### 生产模式
 
 ~~~bash
-cd frontend && npm run build     # 前端产物 → frontend/dist
-cd backend && cargo build --release  # 后端打包静态文件
+cd source/frontend && npm run build     # 前端产物 → source/frontend/dist
+cd source/backend && cargo build --release  # 后端打包静态文件
 ~~~
 
 ## 目录

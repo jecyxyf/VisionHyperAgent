@@ -1,6 +1,6 @@
-[submodule "backend/depends/codex"]
-	path = backend/depends/codex
+[submodule "source/backend/depends/codex"]
+	path = source/backend/depends/codex
 	url = https://github.com/openai/codex.git
-[submodule "backend/depends/ultralytics"]
-	path = backend/depends/ultralytics
+[submodule "source/backend/depends/ultralytics"]
+	path = source/backend/depends/ultralytics
 	url = https://github.com/ultralytics/ultralytics.git

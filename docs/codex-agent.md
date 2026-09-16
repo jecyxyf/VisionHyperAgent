@@ -2,7 +2,7 @@
 
 | 项目 | 内容 |
 |------|------|
-| 源码位置 | backend/model/codex_agent/ |
+| 源码位置 | source/backend/model/codex_agent/ |
 | 职责 | 将 Codex App Server 的 WebSocket / JSON-RPC 能力转为后端进程内接口 |
 
 ## 1. 状态机

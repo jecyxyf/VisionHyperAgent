@@ -1,10 +1,10 @@
 # Rust
-backend/target/
+source/backend/target/
 target/
 
 # Node
-frontend/node_modules/
-frontend/dist/
+source/frontend/node_modules/
+source/frontend/dist/
 
 # Python
 __pycache__/
