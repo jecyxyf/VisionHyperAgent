@@ -44,6 +44,6 @@
   .toolbar-divider {
     width: 1px;
     height: 18px;
-    background: var(--vha-spectrum-soft);
+    background: var(--vha-border);
   }
 </style>

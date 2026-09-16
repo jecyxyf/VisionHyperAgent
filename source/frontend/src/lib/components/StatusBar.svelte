@@ -23,15 +23,10 @@
     width: min(480px, calc(100% - 32px));
     min-height: 56px;
     padding: 10px;
-    border: 1px solid transparent;
+    border: 1px solid var(--vha-glass-edge);
     border-radius: 22px;
-    background:
-      linear-gradient(145deg, rgba(255, 255, 255, 0.96), rgba(248, 250, 255, 0.91)) padding-box,
-      var(--vha-spectrum-line) border-box;
-    backdrop-filter: blur(18px) saturate(150%);
-    box-shadow:
-      0 10px 32px var(--vha-shadow),
-      inset 0 1px 0 rgba(255, 255, 255, 0.9);
+    background: var(--vha-glass-strong);
+    box-shadow: 0 8px 30px var(--vha-shadow);
     transform: translateX(-50%);
   }
 

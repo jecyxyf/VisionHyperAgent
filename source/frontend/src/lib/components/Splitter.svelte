@@ -106,15 +106,13 @@
     width: var(--splitter-handle-width);
     height: var(--splitter-handle-height);
     border-radius: 2px;
-    background: var(--vha-spectrum-line);
+    background: rgba(101, 69, 206, 0.32);
     content: "";
-    box-shadow: 0 0 8px rgba(105, 77, 197, 0.11);
-    transition: background 120ms ease, box-shadow 120ms ease;
+    transition: background-color 120ms ease;
   }
 
   .splitter:hover::before {
-    background: var(--vha-action-gradient);
-    box-shadow: 0 0 11px rgba(105, 77, 197, 0.2);
+    background: var(--vha-accent);
   }
 
   .splitter:not(.horizontal) {
@@ -146,6 +144,5 @@
   .splitter:focus-visible::before,
   .splitter.dragging::before {
     background: var(--vha-action-gradient);
-    box-shadow: 0 0 14px rgba(105, 77, 197, 0.24);
   }
 </style>

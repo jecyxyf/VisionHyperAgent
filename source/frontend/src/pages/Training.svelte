@@ -137,7 +137,7 @@
   .toolbar-divider {
     width: 1px;
     height: 18px;
-    background: var(--vha-spectrum-soft);
+    background: var(--vha-border);
   }
 
   .body {
@@ -214,15 +214,13 @@
     min-height: 0;
     padding: 12px;
     overflow: hidden;
-    border: 1px solid transparent;
+    border: 1px solid var(--vha-border);
     border-radius: 14px;
     background:
-      linear-gradient(145deg, rgba(255, 255, 255, 0.78), rgba(255, 255, 255, 0.58)) padding-box,
-      linear-gradient(rgba(124, 77, 255, 0.06) 1px, transparent 1px) padding-box,
-      linear-gradient(90deg, rgba(40, 200, 216, 0.055) 1px, transparent 1px) padding-box,
-      var(--vha-spectrum-soft) border-box;
-    background-size: auto, 100% 28px, 28px 100%, auto;
-    box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.68);
+      var(--vha-canvas-gradient),
+      linear-gradient(rgba(102, 81, 167, 0.066) 1px, transparent 1px),
+      linear-gradient(90deg, rgba(102, 81, 167, 0.066) 1px, transparent 1px);
+    background-size: auto, 100% 28px, 28px 100%;
   }
 
   .chart::after {
@@ -265,21 +263,16 @@
   input {
     height: 34px;
     padding: 0 10px;
-    border: 1px solid transparent;
+    border: 1px solid var(--vha-border);
     border-radius: 10px;
-    background:
-      linear-gradient(145deg, rgba(255, 255, 255, 0.84), rgba(255, 255, 255, 0.68)) padding-box,
-      var(--vha-spectrum-soft) border-box;
+    background: var(--vha-field-gradient);
     color: var(--vha-text);
     font-size: 12.3px;
   }
 
   input:focus {
     outline: none;
-    background:
-      linear-gradient(145deg, #ffffff, #f8fbff) padding-box,
-      var(--vha-spectrum-line) border-box;
-    box-shadow: 0 0 0 3px rgba(124, 77, 255, 0.08);
+    border-color: var(--vha-accent);
   }
 
   :global(.logs) p {
