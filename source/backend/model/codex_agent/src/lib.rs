@@ -1,13 +1,15 @@
-//! CodexAgent：通过 WebSocket 连接 Codex App Server。
+//! Codex App Server communication and process primitives.
 //!
-//! 完整生命周期：
-//! 1. spawn Codex App Server 子进程
-//! 2. 建立 WebSocket 连接
-//! 3. 执行 JSON-RPC 请求 / 接收通知
-//! 4. 停止时先关 WebSocket 再杀子进程
-
+//! The host owns `CodexProcess`. `CodexAgent` never starts or kills a process.
+mod client;
+mod config;
+mod error;
 pub mod process;
-pub mod websocket;
+mod types;
+mod websocket;
 
-pub use process::CodexProcess;
-pub use websocket::CodexAgent;
+pub use client::CodexAgent;
+pub use config::AgentConfig;
+pub use error::{AgentError, Result};
+pub use process::{CodexProcess, ProcessConfig};
+pub use types::*;

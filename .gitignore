@@ -14,6 +14,9 @@ __pycache__/
 # Build output
 bin/
 
+# Machine-local provider credentials (never commit).
+config.local.toml
+
 # IDE
 .idea/
 .vscode/

@@ -5,6 +5,7 @@
 | 日期 | 2026-09-16 |
 | 状态 | Web 架构已确认 |
 | 核心决策 | 浏览器前端 + Rust 本地后端，放弃 PySide6/QML 桌面方案 |
+| 当前实现 | Agent 前后端模块与接口详见 [frontend-backend-architecture.md](frontend-backend-architecture.md) |
 
 ## 1. 产品范围
 

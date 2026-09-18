@@ -1,6 +1,9 @@
+//! HTTP/WebSocket host and its owned Agent supervisor.
+use std::future::IntoFuture;
 use std::net::SocketAddr;
 use std::sync::mpsc;
 use std::thread::JoinHandle;
+use std::time::Duration;
 
 use axum::http::{header, StatusCode, Uri};
 use axum::response::{IntoResponse, Response};
@@ -9,71 +12,72 @@ use axum::Router;
 use rust_embed::RustEmbed;
 
 use crate::shutdown::{ShutdownController, ShutdownSignal};
+use crate::{agent_api, agent_runtime::AgentRuntime, codex_config::CodexSettings};
 
 #[derive(RustEmbed)]
 #[folder = "../../frontend/dist/"]
 struct FrontendAssets;
 
-/// A running local HTTP server owned by the host process.
 pub struct ServerHandle {
     shutdown: ShutdownController,
     thread: Option<JoinHandle<()>>,
+    addr: SocketAddr,
 }
 
 impl ServerHandle {
-    /// Requests graceful shutdown and waits until the server thread finishes.
+    pub fn address(&self) -> SocketAddr {
+        self.addr
+    }
+
     pub fn stop(mut self) -> Result<(), String> {
-        log::info!("requesting HTTP server shutdown");
-        self.shutdown
-            .request_shutdown()
-            .then_some(())
-            .ok_or_else(|| "shutdown sender is closed".to_string())?;
-
-        let thread = self
-            .thread
-            .take()
-            .ok_or_else(|| "server thread is missing".to_string())?;
-
-        thread.join().map_err(|error| {
-            let message = format!("server thread panicked: {error:?}");
-            log::error!("{message}");
-            message
-        })
+        log::info!("requesting application backend shutdown");
+        self.shutdown.request_shutdown();
+        let thread = self.thread.take().ok_or("server thread is missing")?;
+        thread
+            .join()
+            .map_err(|_| "backend thread panicked during shutdown".to_string())
     }
 }
 
 impl Drop for ServerHandle {
     fn drop(&mut self) {
         self.shutdown.request_shutdown();
-
         if let Some(thread) = self.thread.take() {
             let _ = thread.join();
         }
     }
 }
 
-/// Starts the server on a background thread and returns after the port is bound.
+/// A host without provider configuration, useful for serving setup/error UI and isolated tests.
 pub fn start(addr: SocketAddr) -> Result<ServerHandle, String> {
+    start_with_codex(addr, Err("尚未配置 Agent 模型服务".into()))
+}
+
+/// Starts HTTP promptly. Codex initialization runs in the owned background supervisor.
+pub fn start_with_codex(
+    addr: SocketAddr,
+    settings: Result<CodexSettings, String>,
+) -> Result<ServerHandle, String> {
+    if !addr.ip().is_loopback() {
+        return Err("backend must listen on a loopback address".into());
+    }
     let shutdown = ShutdownController::new();
     let thread_shutdown = shutdown.clone();
     let (startup_tx, startup_rx) = mpsc::channel();
-
     let thread = std::thread::Builder::new()
-        .name("vha-http-server".to_string())
+        .name("vha-http-server".into())
         .spawn(move || {
             let runtime = match tokio::runtime::Builder::new_multi_thread()
-                .worker_threads(1)
+                .worker_threads(2)
                 .enable_all()
                 .build()
             {
                 Ok(runtime) => runtime,
                 Err(error) => {
-                    log::error!("failed to create HTTP server runtime: {error}");
                     let _ = startup_tx.send(Err(format!("failed to create runtime: {error}")));
                     return;
                 }
             };
-
             let listener = match runtime.block_on(tokio::net::TcpListener::bind(addr)) {
                 Ok(listener) => listener,
                 Err(error) => {
@@ -82,26 +86,29 @@ pub fn start(addr: SocketAddr) -> Result<ServerHandle, String> {
                     return;
                 }
             };
-
-            if startup_tx.send(Ok(())).is_err() {
+            let bound = match listener.local_addr() {
+                Ok(addr) => addr,
+                Err(error) => {
+                    let _ = startup_tx.send(Err(error.to_string()));
+                    return;
+                }
+            };
+            if startup_tx.send(Ok(bound)).is_err() {
                 return;
             }
-
-            let signal = ShutdownSignal::from_controller(&thread_shutdown);
-            if let Err(error) = runtime.block_on(run_server(listener, signal)) {
-                log::error!("local HTTP server stopped with an error: {error}");
+            if let Err(error) = runtime.block_on(run_server(listener, thread_shutdown, settings)) {
+                log::error!("application backend stopped with error: {error}");
             }
+            runtime.shutdown_timeout(Duration::from_secs(1));
         })
-        .map_err(|error| format!("failed to spawn server thread: {error}"))?;
-
-    log::info!("starting local HTTP server on {addr}");
-
+        .map_err(|error| format!("failed to spawn backend thread: {error}"))?;
     match startup_rx.recv() {
-        Ok(Ok(())) => {
+        Ok(Ok(addr)) => {
             log::info!("local HTTP server started on {addr}");
             Ok(ServerHandle {
                 shutdown,
                 thread: Some(thread),
+                addr,
             })
         }
         Ok(Err(error)) => {
@@ -110,46 +117,81 @@ pub fn start(addr: SocketAddr) -> Result<ServerHandle, String> {
         }
         Err(_) => {
             let _ = thread.join();
-            log::error!("HTTP server thread exited before startup completed");
-            Err("server exited before reporting startup status".to_string())
+            Err("backend exited before reporting startup status".into())
         }
     }
 }
 
 async fn run_server(
     listener: tokio::net::TcpListener,
-    mut shutdown: ShutdownSignal,
+    shutdown: ShutdownController,
+    settings: Result<CodexSettings, String>,
 ) -> Result<(), String> {
+    let addr = listener.local_addr().map_err(|error| error.to_string())?;
+    let runtime = AgentRuntime::prepare(settings, addr).await;
+    let service = runtime.service.clone();
+    let mut supervisor = tokio::spawn(runtime.run(ShutdownSignal::from_controller(&shutdown)));
+    let gateway = crate::model_gateway::routes(service.settings.clone())?;
     let app = Router::new()
         .route("/api/health", get(health))
+        .merge(agent_api::routes(
+            service.clone(),
+            ShutdownSignal::from_controller(&shutdown),
+            addr,
+        ))
+        .merge(gateway)
         .fallback(static_handler);
-
-    axum::serve(listener, app)
+    let mut signal = ShutdownSignal::from_controller(&shutdown);
+    let mut http_signal = signal.clone();
+    let server = axum::serve(listener, app)
         .with_graceful_shutdown(async move {
-            shutdown.wait().await;
+            http_signal.wait().await;
         })
+        .into_future();
+    tokio::pin!(server);
+    let mut http_finished = false;
+    let mut result = Ok(());
+    tokio::select! {
+        _=signal.wait()=>{},
+        outcome=&mut server=>{http_finished=true;result=outcome.map_err(|error|error.to_string());shutdown.request_shutdown();}
+    }
+    service.begin_shutdown().await;
+    if tokio::time::timeout(Duration::from_secs(9), &mut supervisor)
         .await
-        .map_err(|error| error.to_string())
+        .is_err()
+    {
+        log::error!("Agent supervisor exceeded shutdown deadline; dropping owned process guard");
+        supervisor.abort();
+        let _ = supervisor.await;
+    }
+    if !http_finished
+        && tokio::time::timeout(Duration::from_secs(3), &mut server)
+            .await
+            .is_err()
+    {
+        log::warn!("HTTP connections exceeded graceful shutdown deadline");
+    }
+    log::info!("application backend stopped; owned Codex supervisor finished");
+    result
 }
 
 async fn health() -> impl IntoResponse {
     ([(header::CONTENT_TYPE, "text/plain; charset=utf-8")], "ok")
 }
-
 async fn static_handler(uri: Uri) -> Response {
     serve_static_path(uri.path())
 }
 
 fn serve_static_path(path: &str) -> Response {
     let path = path.trim_start_matches('/');
+    if path.starts_with("api/") || path.starts_with("internal/") || path == "ws" {
+        return (StatusCode::NOT_FOUND, "Not Found").into_response();
+    }
     let path = if path.is_empty() { "index.html" } else { path };
-
     if let Some(content) = FrontendAssets::get(path) {
         let mime = mime_guess::from_path(path).first_or_octet_stream();
         return ([(header::CONTENT_TYPE, mime.as_ref())], content.data).into_response();
     }
-
-    // Unknown extension-less paths are treated as SPA routes.
     if std::path::Path::new(path).extension().is_none() {
         if let Some(content) = FrontendAssets::get("index.html") {
             return (
@@ -159,7 +201,6 @@ fn serve_static_path(path: &str) -> Response {
                 .into_response();
         }
     }
-
     (StatusCode::NOT_FOUND, "Not Found").into_response()
 }
 

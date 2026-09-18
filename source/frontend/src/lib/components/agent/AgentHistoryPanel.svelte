@@ -5,6 +5,9 @@
   let {
     sessions,
     activeSessionId,
+    loading = false,
+    hasMore = false,
+    onLoadMore,
     onClose,
     onSelect,
     onCreate,
@@ -12,6 +15,9 @@
   }: {
     sessions: AgentHistorySession[];
     activeSessionId: string;
+    loading?: boolean;
+    hasMore?: boolean;
+    onLoadMore?: () => void;
     onClose?: () => void;
     onSelect?: (id: string) => void;
     onCreate?: () => void;
@@ -33,7 +39,7 @@
 
     <div class="session-list">
       {#each sessions as session (session.id)}
-        <article class:active={session.id === activeSessionId}>
+        <article class:active={session.id === activeSessionId} data-session-id={session.id}>
           <button type="button" class="session-main" onclick={() => onSelect?.(session.id)}>
             <strong>{session.title}</strong>
             <span>{session.summary}</span>
@@ -42,14 +48,16 @@
           <button
             type="button"
             class="delete"
-            aria-label={"删除会话 " + session.title}
-            title={"删除会话 " + session.title}
+            aria-label={"归档会话 " + session.title}
+            title={"归档会话 " + session.title}
             onclick={() => onDelete?.(session.id)}
           >
             <Icon name="trash" size={13} />
           </button>
         </article>
       {/each}
+      {#if sessions.length === 0}<p class="empty-history">{loading ? "正在读取会话…" : "暂无历史会话"}</p>{/if}
+      {#if hasMore}<button class="load-more" disabled={loading} onclick={onLoadMore}>{loading ? "加载中…" : "加载更多"}</button>{/if}
     </div>
   </section>
 </div>
@@ -186,4 +194,6 @@
     background: var(--vha-selection-gradient);
     color: var(--vha-accent);
   }
+  .empty-history { padding: 14px; font-size: 12px; color: var(--vha-muted); }
+  .load-more { width: 100%; padding: 10px; font-size: 12px; color: var(--vha-accent); }
 </style>

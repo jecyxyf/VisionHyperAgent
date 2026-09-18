@@ -73,15 +73,12 @@ pub fn run(url: &str, server: ServerHandle) -> Result<(), String> {
                     }
                 } else if event.id == exit_item.id() {
                     log::info!("exit requested from system tray");
-                    tray.take();
                     *control_flow = ControlFlow::Exit;
                 }
             }
             _ => {}
         }
     });
-
-    tray.take();
 
     if let Some(error) = startup_error {
         log::error!("stopping HTTP server after tray startup failure: {error}");
@@ -96,6 +93,7 @@ pub fn run(url: &str, server: ServerHandle) -> Result<(), String> {
     }
 
     let result = server.stop();
+    tray.take();
     if let Err(error) = &result {
         log::error!("failed to stop HTTP server: {error}");
     }

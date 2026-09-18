@@ -1,17 +1,13 @@
 //! VisionHyperAgent local host process.
 //!
-//! This stage intentionally contains only the local HTTP server and system
-//! tray lifecycle. Agent and Codex integration will be added in later stages.
+//! The backend owns Codex; browser tabs never own application lifetime.
 
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
-mod app_config;
 mod browser;
-mod http_server;
-mod shutdown;
 mod tray;
 
-use crate::app_config::AppConfig;
+use vha_server::{app_config::AppConfig, codex_config::CodexSettings, http_server};
 
 fn main() {
     let logging_config = vha_common::logging::config_for_executable("VisionHyperAgent");
@@ -51,7 +47,12 @@ fn main() {
         config.listen_addr
     );
 
-    let server = match http_server::start(config.listen_addr) {
+    let app_dir = std::env::current_exe()
+        .ok()
+        .and_then(|p| p.parent().map(std::path::Path::to_path_buf))
+        .unwrap_or_else(|| std::path::PathBuf::from("."));
+    let settings = CodexSettings::load(&app_dir);
+    let server = match http_server::start_with_codex(config.listen_addr, settings) {
         Ok(server) => server,
         Err(error) => {
             log::error!("failed to start local server: {error}");
@@ -59,10 +60,35 @@ fn main() {
         }
     };
 
-    if let Err(error) = tray::run(&config.base_url(), server) {
+    let result = if std::env::args().any(|arg| arg == "--headless") {
+        let runtime = tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build()
+            .expect("signal runtime");
+        if let Err(error) = runtime.block_on(wait_for_signal()) {
+            log::error!("failed to wait for shutdown signal: {error}");
+        }
+        server.stop()
+    } else {
+        tray::run(&config.base_url(), server)
+    };
+    if let Err(error) = result {
         log::error!("failed to run VisionHyperAgent: {error}");
         std::process::exit(1);
     }
 
     log::info!("VisionHyperAgent stopped");
+}
+
+async fn wait_for_signal() -> std::io::Result<()> {
+    #[cfg(unix)]
+    {
+        let mut terminate =
+            tokio::signal::unix::signal(tokio::signal::unix::SignalKind::terminate())?;
+        tokio::select! {_ = terminate.recv()=>Ok(()), result=tokio::signal::ctrl_c()=>result}
+    }
+    #[cfg(not(unix))]
+    {
+        tokio::signal::ctrl_c().await
+    }
 }

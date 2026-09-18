@@ -274,7 +274,22 @@ impl Logger {
 
 impl Log for Logger {
     fn enabled(&self, metadata: &Metadata<'_>) -> bool {
-        metadata.level() as usize <= self.max_level.load(Ordering::Relaxed)
+        // Network dependency diagnostics can include complete frames, headers and prompts.
+        // The application logs classified connection/request failures instead.
+        let root = metadata.target().split("::").next().unwrap_or_default();
+        !matches!(
+            root,
+            "tungstenite"
+                | "tokio_tungstenite"
+                | "reqwest"
+                | "hyper"
+                | "hyper_util"
+                | "h2"
+                | "rustls"
+                | "axum"
+                | "multer"
+                | "tower_http"
+        ) && metadata.level() as usize <= self.max_level.load(Ordering::Relaxed)
     }
 
     fn log(&self, record: &Record<'_>) {
@@ -413,5 +428,46 @@ mod tests {
             .ends_with(" [DEBUG] [vha_server::main:31] debug self-test"));
         assert!(format_record(&warning_record)
             .ends_with(" [WARNING] [vha_server::main:36] warning self-test"));
+    }
+    #[test]
+    fn transport_frames_never_enter_logs_even_at_trace_level() {
+        let root = std::env::temp_dir().join(format!(
+            "vha-log-privacy-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        std::fs::create_dir(&root).unwrap();
+        let logger = Logger::open("Privacy", &root, LevelFilter::Trace).unwrap();
+        let path = logger.path().to_path_buf();
+        for target in [
+            "tungstenite::protocol",
+            "reqwest::connect",
+            "hyper::proto",
+            "axum::rejection",
+        ] {
+            logger.log(
+                &Record::builder()
+                    .args(format_args!("SENSITIVE_FRAME_MARKER"))
+                    .level(Level::Error)
+                    .target(target)
+                    .build(),
+            );
+        }
+        logger.log(
+            &Record::builder()
+                .args(format_args!("application diagnostic retained"))
+                .level(Level::Debug)
+                .target("vha_server::agent")
+                .build(),
+        );
+        logger.flush();
+        drop(logger);
+        let content = std::fs::read_to_string(path).unwrap();
+        assert!(!content.contains("SENSITIVE_FRAME_MARKER"));
+        assert!(content.contains("application diagnostic retained"));
+        std::fs::remove_dir_all(root).unwrap();
     }
 }

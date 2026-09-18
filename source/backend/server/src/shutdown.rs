@@ -6,6 +6,12 @@ pub struct ShutdownController {
     tx: watch::Sender<bool>,
 }
 
+impl Default for ShutdownController {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 /// The asynchronous shutdown signal observed by the HTTP server.
 #[derive(Debug, Clone)]
 pub struct ShutdownSignal {
@@ -19,7 +25,8 @@ impl ShutdownController {
     }
 
     pub fn request_shutdown(&self) -> bool {
-        self.tx.send(true).is_ok()
+        self.tx.send_replace(true);
+        true
     }
 }
 
@@ -35,9 +42,7 @@ impl ShutdownSignal {
             return;
         }
 
-        if self.rx.changed().await.is_err() {
-            std::future::pending::<()>().await;
-        }
+        let _ = self.rx.wait_for(|requested| *requested).await;
     }
 }
 
