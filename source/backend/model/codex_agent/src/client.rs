@@ -1,6 +1,6 @@
 use std::sync::{
     atomic::{AtomicI64, Ordering},
-    Arc, Mutex,
+    Arc, Mutex, RwLock,
 };
 
 use serde::de::DeserializeOwned;
@@ -22,7 +22,7 @@ struct Running {
 }
 
 struct Inner {
-    config: TransportConfig,
+    config: RwLock<TransportConfig>,
     state: watch::Sender<AgentState>,
     events: broadcast::Sender<AgentEvent>,
     running: Mutex<Option<Running>>,
@@ -50,7 +50,7 @@ impl CodexAgent {
         let (events, _) = broadcast::channel(config.event_capacity.max(1));
         Self {
             inner: Arc::new(Inner {
-                config,
+                config: RwLock::new(config),
                 state,
                 events,
                 running: Mutex::new(None),
@@ -69,9 +69,8 @@ impl CodexAgent {
     }
 
     pub async fn connect(&self) -> Result<()> {
-        if self.inner.config.connect_timeout.is_zero()
-            || self.inner.config.request_timeout.is_zero()
-        {
+        let config = self.inner.config.read().unwrap().clone();
+        if config.connect_timeout.is_zero() || config.request_timeout.is_zero() {
             return Err(AgentError::Configuration("timeouts must be positive"));
         }
         let mut state = self.inner.state.subscribe();
@@ -87,7 +86,7 @@ impl CodexAgent {
                     .state
                     .send_modify(|s| s.phase = ConnectionPhase::Connecting);
                 let actor = Actor {
-                    config: self.inner.config.clone(),
+                    config,
                     commands: receiver,
                     stop: cancel,
                     state: self.inner.state.clone(),
@@ -142,6 +141,22 @@ impl CodexAgent {
         Ok(())
     }
 
+    /// Replaces only the transport endpoint between isolated startup attempts.
+    ///
+    /// The caller must disconnect first. Capacity and timeout semantics stay fixed for
+    /// the lifetime of this client, which keeps active event receivers valid.
+    pub fn replace_websocket_url(&self, websocket_url: String) -> Result<()> {
+        if websocket_url.trim().is_empty() {
+            return Err(AgentError::Configuration("websocket URL must not be empty"));
+        }
+        let running = self.inner.running.lock().unwrap();
+        if running.as_ref().is_some_and(|run| !run.task.is_finished()) {
+            return Err(AgentError::Busy);
+        }
+        self.inner.config.write().unwrap().websocket_url = websocket_url;
+        Ok(())
+    }
+
     async fn call<T: DeserializeOwned>(&self, method: &'static str, params: Value) -> Result<T> {
         let state = self.status();
         if state.phase != ConnectionPhase::Ready {
@@ -155,10 +170,11 @@ impl CodexAgent {
             method,
             params,
             connection_id: state.connection_id,
-            deadline: Instant::now() + self.inner.config.request_timeout,
+            deadline: Instant::now() + self.inner.config.read().unwrap().request_timeout,
             reply,
         };
-        let value = timeout(self.inner.config.request_timeout, async {
+        let request_timeout = self.inner.config.read().unwrap().request_timeout;
+        let value = timeout(request_timeout, async {
             tx.send(Command::Request(request))
                 .await
                 .map_err(|_| AgentError::Disconnected)?;
@@ -274,7 +290,8 @@ impl CodexAgent {
             result,
             reply,
         };
-        timeout(self.inner.config.request_timeout, async {
+        let request_timeout = self.inner.config.read().unwrap().request_timeout;
+        timeout(request_timeout, async {
             self.commands()?
                 .send(command)
                 .await
@@ -299,7 +316,7 @@ impl CodexAgent {
 
 impl CodexAgent {
     pub fn experimental_api_enabled(&self) -> bool {
-        self.inner.config.experimental_api
+        self.inner.config.read().unwrap().experimental_api
     }
 
     pub async fn list_background_terminals(
@@ -307,7 +324,7 @@ impl CodexAgent {
         thread_id: &str,
         cursor: Option<&str>,
     ) -> Result<Page<crate::BackgroundTerminal>> {
-        if !self.inner.config.experimental_api {
+        if !self.inner.config.read().unwrap().experimental_api {
             return Err(AgentError::UnsupportedMethod);
         }
         self.call(
@@ -322,7 +339,7 @@ impl CodexAgent {
         thread_id: &str,
         process_id: &str,
     ) -> Result<bool> {
-        if !self.inner.config.experimental_api {
+        if !self.inner.config.read().unwrap().experimental_api {
             return Err(AgentError::UnsupportedMethod);
         }
         #[derive(serde::Deserialize)]

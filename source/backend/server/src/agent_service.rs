@@ -82,6 +82,10 @@ struct State {
     models: Vec<Model>,
 }
 
+fn current_config(fallback: &Arc<PreparedAgent>) -> Arc<vha_codex_agent::ResolvedAgentConfig> {
+    vha_codex_agent::config::current().unwrap_or_else(|| fallback.config.clone())
+}
+
 pub struct AgentService {
     pub client: CodexAgent,
     pub agent: Option<Arc<PreparedAgent>>,
@@ -99,7 +103,10 @@ impl AgentService {
         uploads: Option<Arc<AttachmentStore>>,
         error: Option<String>,
     ) -> Arc<Self> {
-        let models = agent.as_ref().map(|agent| agent.config.browser_models());
+        let models = agent
+            .as_ref()
+            .map(current_config)
+            .map(|config| config.browser_models());
         let (events, _) = broadcast::channel(512);
         Arc::new(Self {
             client,
@@ -129,6 +136,9 @@ impl AgentService {
     }
 
     pub fn sanitize(&self, mut value: Value) -> Value {
+        if let Some(manager) = vha_codex_agent::config::global() {
+            manager.redact(&mut value);
+        }
         if let Some(agent) = &self.agent {
             agent.redact(&mut value);
         }
@@ -195,6 +205,27 @@ impl AgentService {
         }))
     }
 
+    pub async fn apply_configuration_change(&self, codex_changed: bool) {
+        let models = self
+            .agent
+            .as_ref()
+            .map(current_config)
+            .map(|config| config.browser_models())
+            .unwrap_or_default();
+        self.state.lock().await.models = models;
+        if codex_changed {
+            let pid = self.state.lock().await.pid;
+            self.process_status(
+                "error",
+                pid,
+                Some("配置已保存；Codex 参数已变化，请重启 VisionHyperAgent 后生效。".into()),
+            )
+            .await;
+        } else {
+            self.publish_status().await;
+        }
+    }
+
     async fn publish_status(&self) {
         self.emit(json!({"type":"status","data":self.snapshot().await}));
     }
@@ -204,8 +235,12 @@ impl AgentService {
             .agent
             .as_ref()
             .ok_or_else(|| ServiceError::new("configuration", "Agent 尚未配置"))?;
+        let config = current_config(agent);
+        if config.models.is_empty() {
+            return Err(ServiceError::new("configuration", "Agent 尚未配置模型"));
+        }
         Ok(ThreadOptions {
-            model: Some(agent.config.active_model_id.clone()),
+            model: Some(config.active_model_id.clone()),
             cwd: agent.workspace.to_string_lossy().into_owned(),
             approval_policy: ApprovalPolicy::OnRequest,
             sandbox: SandboxMode::WorkspaceWrite,
@@ -383,7 +418,8 @@ impl AgentService {
             .agent
             .as_ref()
             .ok_or_else(|| ServiceError::new("configuration", "Agent 尚未配置"))?;
-        let Some(model) = agent.config.model(&params.model_id) else {
+        let config = current_config(agent);
+        let Some(model) = config.model(&params.model_id) else {
             return Err(ServiceError::new(
                 "bad_request",
                 "当前模型未在后端配置中启用",

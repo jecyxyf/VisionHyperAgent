@@ -103,6 +103,47 @@ test('UI: unsupported image error retains draft and attachment', async ({ page }
   await expect(page.getByRole('button', { name: '发送消息', exact: true })).toBeVisible();
 });
 
+test('UI: send remains available and reports backend failure while Codex is starting', async ({ page }) => {
+  await page.routeWebSocket('**/ws', socket => {
+    const snapshot = {
+      phase: 'starting',
+      message: '正在连接 Codex…',
+      models: [{
+        id: 'minimax-m3',
+        model: 'minimax-m3',
+        displayName: 'minimax-m3',
+        defaultReasoningEffort: 'medium',
+        supportedReasoningEfforts: [{ reasoningEffort: 'medium' }],
+        inputModalities: ['text'],
+      }],
+      activeTurns: {},
+      interactions: [],
+    };
+    socket.onMessage(raw => {
+      const call = JSON.parse(String(raw));
+      if (!call.id) return;
+      if (call.method === 'turn.start') {
+        socket.send(JSON.stringify({ id: call.id, error: { code: 'not_ready', message: 'Agent 尚未就绪，请检查连接状态和后端配置' } }));
+      } else {
+        socket.send(JSON.stringify({ id: call.id, result: call.method === 'status' ? snapshot : { thread: { id: call.params?.threadId, preview: '', createdAt: 1, updatedAt: 1, turns: [] } } }));
+      }
+    });
+    socket.send(JSON.stringify({ type: 'status', data: snapshot }));
+  });
+
+  await page.addInitScript(() => localStorage.setItem('vha.agent.activeThread', 'starting-thread'));
+  await page.goto('/');
+  await expect(page.getByTestId('agent-status')).toContainText('Codex 启动中');
+  await expect(page.getByRole('button', { name: '发送消息', exact: true })).toBeDisabled();
+  await page.getByLabel('消息输入').fill('启动期间发送');
+  await expect(page.getByRole('button', { name: '发送消息', exact: true })).toBeEnabled();
+  await page.getByRole('button', { name: '发送消息', exact: true }).click();
+  await expect(page.getByRole('alert')).toContainText('Agent 尚未就绪');
+  await expect(page.locator('article[data-tone="user"]')).toContainText('启动期间发送');
+  await expect(page.locator('article[data-tone="user"]')).toContainText('未确认发送 / 失败');
+  await expect(page.getByLabel('消息输入')).toHaveValue('启动期间发送');
+});
+
 test('literal model-like markup is not executable HTML in chat', async ({ page }) => {
   await page.routeWebSocket('**/ws', socket => {
     const snapshot = { phase: 'ready', message: null, models: [{ id: 'minimax-m3', model: 'minimax-m3', displayName: 'minimax-m3', defaultReasoningEffort: 'medium', supportedReasoningEfforts: [{ reasoningEffort: 'low' }, { reasoningEffort: 'medium' }], inputModalities: ['text'] }], activeTurns: {}, interactions: [] };

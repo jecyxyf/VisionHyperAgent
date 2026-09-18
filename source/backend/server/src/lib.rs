@@ -5,4 +5,5 @@ pub mod agent_service;
 pub mod attachments;
 pub mod http_server;
 mod model_gateway;
+pub mod settings_api;
 pub mod shutdown;

@@ -47,7 +47,9 @@
   const supportsImages = $derived(Boolean(selectedModelData?.inputModalities.includes("image")));
   const effortSupported = $derived(!modelEfforts.length || modelEfforts.includes(selectedEffort));
   const inputTooLong = $derived(new TextEncoder().encode(draft).byteLength > 64 * 1024);
-  const canSend = $derived(!inputTooLong && ready && initialized && !generating && !switching && selectedModel !== "" && effortSupported && (draft.trim().length > 0 || attachments.length > 0));
+  // Agent readiness is intentionally informational here. A send attempt is always allowed to
+  // reach the backend when the local draft is valid, and the backend error becomes UI feedback.
+  const canSend = $derived(!inputTooLong && !generating && !switching && selectedModel !== "" && effortSupported && (draft.trim().length > 0 || attachments.length > 0));
   const statusText = $derived(!connected ? "后端未连接" : ({ starting: "Codex 启动中", connecting: "正在连接 Codex", reconnecting: "Codex 重连中", ready: initializing ? "正在同步会话" : activeTurn?.uncertain ? "任务状态待同步" : generating ? "任务进行中" : "Agent 已就绪", error: "Agent 不可用", stopping: "后端正在退出", stopped: "后端已停止" }[snapshot.phase] ?? snapshot.phase));
   const interactions = $derived(snapshot.interactions.filter((item) => !item.request.params.threadId || item.request.params.threadId === activeSessionId));
 
@@ -288,7 +290,7 @@
       <div class="agent-status" data-testid="agent-status"><span class:online={ready}>{statusText}</span><button onclick={synchronize} disabled={!connected}>同步</button></div>
       {#if snapshot.message}<p class="quiet" role="status">{snapshot.message}</p>{/if}
       {#if notice}<p class="notice" role="alert">{notice}</p>{/if}
-      {#if messages.length === 0}<p class="quiet">{ready ? "输入消息开始对话，或拖入附件。" : "正在等待后端 Agent 就绪…"}</p>{/if}
+      {#if messages.length === 0}<p class="quiet">{ready ? "输入消息开始对话，或拖入附件。" : "Agent 正在准备。可以先输入内容，发送结果会在这里提示。"}</p>{/if}
       <div class="messages">
         {#each messages as message (message.id)}
           <article class:message={message.tone === "user"} class:assistant={message.tone === "assistant"} class:tool={message.tone === "tool"} data-tone={message.tone}>

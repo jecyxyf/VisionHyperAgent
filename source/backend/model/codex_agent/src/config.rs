@@ -5,7 +5,8 @@
 use std::collections::{HashMap, HashSet};
 use std::net::SocketAddr;
 use std::path::{Path, PathBuf};
-use std::sync::Arc;
+use std::sync::atomic::{AtomicU16, Ordering};
+use std::sync::{Arc, Mutex, OnceLock};
 use std::time::Duration;
 
 use serde::{Deserialize, Serialize};
@@ -13,7 +14,7 @@ use serde_json::{json, Map, Value};
 use sha2::{Digest, Sha256};
 use url::Url;
 
-use crate::executable::resolve_codex;
+use crate::executable::{install_process_alias, resolve_codex};
 use crate::process::ProcessConfig;
 use crate::types::{Model, ReasoningEffortOption};
 
@@ -86,13 +87,17 @@ impl Default for ModelConfig {
     }
 }
 
-#[derive(Clone, Serialize, Deserialize)]
+#[derive(Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(default, deny_unknown_fields, rename_all = "camelCase")]
 pub struct CodexConfig {
     pub executable: Option<PathBuf>,
     pub workspace: PathBuf,
     pub home: PathBuf,
-    pub port: u16,
+    /// Old releases exposed a fixed Codex port. It is accepted only so existing
+    /// app_config.json files keep loading; the runtime always asks the OS for a
+    /// fresh local port and never serializes this field back.
+    #[serde(default, rename = "port", skip_serializing)]
+    pub legacy_port: Option<u16>,
     pub connect_timeout_ms: u64,
     pub request_timeout_ms: u64,
     pub reconnect_interval_ms: u64,
@@ -108,7 +113,7 @@ impl Default for CodexConfig {
             executable: None,
             workspace: PathBuf::from("data/workspace"),
             home: PathBuf::from("data/codex"),
-            port: 8421,
+            legacy_port: None,
             connect_timeout_ms: 5_000,
             request_timeout_ms: 30_000,
             reconnect_interval_ms: 500,
@@ -132,6 +137,7 @@ pub struct ResolvedModel {
     pub supports_images: bool,
 }
 
+#[derive(Clone)]
 pub struct ResolvedAgentConfig {
     pub active_model_id: String,
     pub active_model: Arc<ResolvedModel>,
@@ -270,9 +276,6 @@ impl AgentConfig {
 
 impl CodexConfig {
     fn validate(&self) -> Result<(), String> {
-        if self.port == 0 || self.port == 8420 {
-            return Err("Codex 端口必须非零且不同于网页服务端口".into());
-        }
         for (name, value) in [
             ("connectTimeoutMs", self.connect_timeout_ms),
             ("requestTimeoutMs", self.request_timeout_ms),
@@ -300,15 +303,20 @@ pub struct LoadedAgentConfig {
     pub recovered_from: Option<PathBuf>,
 }
 
-pub fn load(app_dir: &Path) -> Result<LoadedAgentConfig, String> {
+struct LoadedAppConfig {
+    value: AppConfig,
+    created: bool,
+    migrated: bool,
+    recovered_from: Option<PathBuf>,
+}
+
+fn load_app(app_dir: &Path) -> Result<LoadedAppConfig, String> {
     let path = app_dir.join("app_config.json");
     if path.exists() {
         let loaded = vha_common::config::load_or_create::<AppConfig>(&path)
             .map_err(|_| "无法读取 app_config.json，请检查文件权限".to_string())?;
-        let mut app = loaded.value;
-        apply_environment(&mut app)?;
-        return Ok(LoadedAgentConfig {
-            config: app.agent.resolve()?,
+        return Ok(LoadedAppConfig {
+            value: loaded.value,
             created: loaded.created,
             migrated: false,
             recovered_from: loaded.recovered_from,
@@ -323,7 +331,7 @@ pub fn load(app_dir: &Path) -> Result<LoadedAgentConfig, String> {
         String::new()
     };
     if let Some(legacy) = parse_legacy(&legacy)? {
-        let mut app = AppConfig {
+        let app = AppConfig {
             version: 1,
             agent: AgentConfig {
                 active_model_id: legacy.model_id.clone(),
@@ -341,17 +349,14 @@ pub fn load(app_dir: &Path) -> Result<LoadedAgentConfig, String> {
                 codex: CodexConfig {
                     executable: legacy.executable,
                     workspace: legacy.workspace.unwrap_or_else(|| "data/workspace".into()),
-                    port: legacy.port.unwrap_or(8421),
                     ..Default::default()
                 },
             },
         };
-        apply_environment(&mut app)?;
-        let config = app.agent.resolve()?;
         vha_common::config::save(&path, &app)
             .map_err(|_| "无法保存迁移后的 app_config.json".to_string())?;
-        return Ok(LoadedAgentConfig {
-            config,
+        return Ok(LoadedAppConfig {
+            value: app,
             created: true,
             migrated: true,
             recovered_from: None,
@@ -360,14 +365,218 @@ pub fn load(app_dir: &Path) -> Result<LoadedAgentConfig, String> {
 
     let loaded = vha_common::config::load_or_create::<AppConfig>(&path)
         .map_err(|_| "无法创建默认 app_config.json".to_string())?;
+    Ok(LoadedAppConfig {
+        value: loaded.value,
+        created: loaded.created,
+        migrated: false,
+        recovered_from: loaded.recovered_from,
+    })
+}
+
+pub fn load(app_dir: &Path) -> Result<LoadedAgentConfig, String> {
+    let loaded = load_app(app_dir)?;
     let mut app = loaded.value;
     apply_environment(&mut app)?;
     Ok(LoadedAgentConfig {
         config: app.agent.resolve()?,
         created: loaded.created,
-        migrated: false,
+        migrated: loaded.migrated,
         recovered_from: loaded.recovered_from,
     })
+}
+
+/// The process-wide Agent configuration store.
+///
+/// Like the logger, one instance is installed at process startup and all later readers and
+/// writers go through it. Tests construct the same manager directly against temporary
+/// directories instead of replacing the process-wide instance.
+pub struct ConfigManager {
+    path: PathBuf,
+    state: Mutex<ConfigManagerState>,
+}
+
+struct ConfigManagerState {
+    app: AppConfig,
+    resolved: Arc<ResolvedAgentConfig>,
+    revision: String,
+    created: bool,
+    migrated: bool,
+    recovered_from: Option<PathBuf>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ConfigUpdate {
+    pub revision: String,
+    pub codex_changed: bool,
+}
+
+static CONFIG_MANAGER: OnceLock<ConfigManager> = OnceLock::new();
+static CONFIG_INIT: Mutex<()> = Mutex::new(());
+
+/// Installs and loads the singleton configuration manager.
+///
+/// A second call returns the already-installed manager's configuration, just as repeated
+/// logger initialization returns the existing logger.
+pub fn initialize(app_dir: &Path) -> Result<LoadedAgentConfig, String> {
+    let guard = CONFIG_INIT
+        .lock()
+        .expect("config initialization mutex poisoned");
+    if let Some(manager) = CONFIG_MANAGER.get() {
+        return manager.loaded();
+    }
+
+    let loaded = load_app(app_dir)?;
+    let mut runtime_app = loaded.value.clone();
+    apply_environment(&mut runtime_app)?;
+    let resolved = Arc::new(runtime_app.agent.resolve()?);
+    let manager = ConfigManager {
+        path: app_dir.join("app_config.json"),
+        state: Mutex::new(ConfigManagerState {
+            revision: revision(&loaded.value),
+            app: loaded.value,
+            resolved,
+            created: loaded.created,
+            migrated: loaded.migrated,
+            recovered_from: loaded.recovered_from,
+        }),
+    };
+    let manager = CONFIG_MANAGER.get_or_init(|| manager);
+    let result = manager.loaded();
+    drop(guard);
+    result
+}
+
+pub fn global() -> Option<&'static ConfigManager> {
+    CONFIG_MANAGER.get()
+}
+
+/// Returns the singleton's current runtime configuration.
+pub fn current() -> Option<Arc<ResolvedAgentConfig>> {
+    global().map(|manager| manager.current_config())
+}
+
+impl ConfigManager {
+    /// Creates an independent manager. Production code uses initialize instead.
+    pub fn new(app_dir: &Path) -> Result<Self, String> {
+        let loaded = load_app(app_dir)?;
+        let mut runtime_app = loaded.value.clone();
+        apply_environment(&mut runtime_app)?;
+        Ok(Self {
+            path: app_dir.join("app_config.json"),
+            state: Mutex::new(ConfigManagerState {
+                revision: revision(&loaded.value),
+                app: loaded.value,
+                resolved: Arc::new(runtime_app.agent.resolve()?),
+                created: loaded.created,
+                migrated: loaded.migrated,
+                recovered_from: loaded.recovered_from,
+            }),
+        })
+    }
+
+    pub fn loaded(&self) -> Result<LoadedAgentConfig, String> {
+        let state = self.lock();
+        Ok(LoadedAgentConfig {
+            config: (*state.resolved).clone(),
+            created: state.created,
+            migrated: state.migrated,
+            recovered_from: state.recovered_from.clone(),
+        })
+    }
+
+    pub fn path(&self) -> &Path {
+        &self.path
+    }
+
+    pub fn app_config(&self) -> AppConfig {
+        self.lock().app.clone()
+    }
+
+    pub fn revision(&self) -> String {
+        self.lock().revision.clone()
+    }
+
+    pub fn current_config(&self) -> Arc<ResolvedAgentConfig> {
+        self.lock().resolved.clone()
+    }
+
+    /// Validates, merges retained credentials, atomically saves, and publishes a new snapshot.
+    pub fn update(
+        &self,
+        mut agent: AgentConfig,
+        expected_revision: Option<&str>,
+    ) -> Result<ConfigUpdate, String> {
+        let mut state = self.lock_poisoned_ok();
+        if let Some(expected) = expected_revision {
+            if expected != state.revision {
+                return Err("CONFIG_CONFLICT: app_config.json 已被外部修改，请重新加载设置".into());
+            }
+        }
+
+        let old_app = state.app.clone();
+        let codex_changed = old_app.agent.codex != agent.codex;
+        merge_retained_api_keys(&old_app.agent, &mut agent);
+        let app = AppConfig { version: 1, agent };
+        let mut runtime_app = app.clone();
+        apply_environment(&mut runtime_app)?;
+        let resolved = Arc::new(runtime_app.agent.resolve()?);
+        vha_common::config::save(&self.path, &app)
+            .map_err(|_| "无法保存 app_config.json，请检查文件权限".to_string())?;
+
+        let next_revision = revision(&app);
+        state.app = app;
+        state.resolved = resolved;
+        state.revision = next_revision.clone();
+        Ok(ConfigUpdate {
+            revision: next_revision,
+            codex_changed,
+        })
+    }
+
+    pub fn redact(&self, value: &mut Value) {
+        let secrets: Vec<String> = {
+            let state = self.lock();
+            state
+                .resolved
+                .models
+                .values()
+                .map(|model| model.api_key.clone())
+                .collect()
+        };
+        let secrets: Vec<&str> = secrets.iter().map(String::as_str).collect();
+        redact_value(value, &secrets);
+    }
+
+    fn lock(&self) -> std::sync::MutexGuard<'_, ConfigManagerState> {
+        self.state.lock().expect("config manager mutex poisoned")
+    }
+
+    fn lock_poisoned_ok(&self) -> std::sync::MutexGuard<'_, ConfigManagerState> {
+        self.state.lock().unwrap_or_else(|error| error.into_inner())
+    }
+}
+
+fn merge_retained_api_keys(old: &AgentConfig, next: &mut AgentConfig) {
+    let old_keys: HashMap<_, _> = old
+        .providers
+        .iter()
+        .map(|provider| (provider.id.as_str(), provider.api_key.as_str()))
+        .collect();
+    for provider in &mut next.providers {
+        if provider.api_key.trim().is_empty() {
+            if let Some(key) = old_keys.get(provider.id.as_str()) {
+                provider.api_key = (*key).to_string();
+            }
+        }
+    }
+}
+
+fn revision(app: &AppConfig) -> String {
+    let bytes = serde_json::to_vec(app).unwrap_or_default();
+    Sha256::digest(bytes)
+        .iter()
+        .map(|byte| format!("{byte:02x}"))
+        .collect()
 }
 
 struct LegacyConfig {
@@ -378,7 +587,6 @@ struct LegacyConfig {
     wire_api: ProviderWireApi,
     executable: Option<PathBuf>,
     workspace: Option<PathBuf>,
-    port: Option<u16>,
 }
 
 #[derive(Default, Deserialize)]
@@ -389,7 +597,6 @@ struct LegacyFile {
     model: Option<String>,
     codex_path: Option<PathBuf>,
     workspace: Option<PathBuf>,
-    port: Option<u16>,
     wire_api: ProviderWireApi,
 }
 
@@ -416,7 +623,6 @@ fn parse_legacy(text: &str) -> Result<Option<LegacyConfig>, String> {
         wire_api: file.wire_api,
         executable: file.codex_path,
         workspace: file.workspace,
-        port: file.port,
     }))
 }
 
@@ -481,9 +687,6 @@ fn apply_environment(app: &mut AppConfig) -> Result<(), String> {
     if let Some(workspace) = value("VHA_CODEX_WORKSPACE") {
         app.agent.codex.workspace = PathBuf::from(workspace);
     }
-    if let Some(port) = value("VHA_CODEX_PORT").and_then(|port| port.parse::<u16>().ok()) {
-        app.agent.codex.port = port;
-    }
     Ok(())
 }
 
@@ -494,12 +697,30 @@ pub struct PreparedAgent {
     pub executable: PathBuf,
     websocket_token: String,
     gateway_token: String,
+    listen_port: AtomicU16,
     pub process: ProcessConfig,
 }
 
 impl PreparedAgent {
     pub fn websocket_url(&self) -> String {
-        format!("ws://127.0.0.1:{}", self.config.codex.port)
+        format!("ws://127.0.0.1:{}", self.listen_port())
+    }
+
+    pub fn listen_port(&self) -> u16 {
+        self.listen_port.load(Ordering::Acquire)
+    }
+
+    /// Selects a runtime-only listen port and returns the matching process args.
+    ///
+    /// The host binds port 0 before calling this method, drops that probe listener,
+    /// then lets Codex bind the selected port. A failed bind is handled by selecting
+    /// another port rather than persisting a fixed value in app_config.json.
+    pub fn rebind_port(&self, port: u16) -> Result<ProcessConfig, String> {
+        if port == 0 {
+            return Err("无法分配 Codex 本机端口".into());
+        }
+        self.listen_port.store(port, Ordering::Release);
+        Ok(self.process_config(port))
     }
 
     pub fn websocket_token(&self) -> String {
@@ -525,6 +746,15 @@ impl PreparedAgent {
         }
     }
 
+    fn process_config(&self, port: u16) -> ProcessConfig {
+        ProcessConfig {
+            executable: self.executable.clone(),
+            args: process_arguments(&self.websocket_token, port),
+            cwd: self.process.cwd.clone(),
+            env: self.process.env.clone(),
+        }
+    }
+
     pub fn redact(&self, value: &mut Value) {
         let mut secrets: Vec<&str> = self
             .config
@@ -538,6 +768,22 @@ impl PreparedAgent {
     }
 }
 
+fn process_arguments(websocket_token: &str, port: u16) -> Vec<std::ffi::OsString> {
+    let digest = Sha256::digest(websocket_token.as_bytes())
+        .iter()
+        .map(|byte| format!("{byte:02x}"))
+        .collect::<String>();
+    vec![
+        "app-server".into(),
+        "--listen".into(),
+        format!("ws://127.0.0.1:{port}").into(),
+        "--ws-auth".into(),
+        "capability-token".into(),
+        "--ws-token-sha256".into(),
+        digest.into(),
+    ]
+}
+
 pub fn prepare(
     config: Arc<ResolvedAgentConfig>,
     app_dir: &Path,
@@ -548,7 +794,8 @@ pub fn prepare(
     }
     let codex = &config.codex;
     let configured_executable = codex.executable.as_deref();
-    let executable = resolve_codex(configured_executable, app_dir)?;
+    let resolved_executable = resolve_codex(configured_executable, app_dir)?;
+    let executable = install_process_alias(&resolved_executable, app_dir)?;
     let workspace = absolute_path(app_dir, &codex.workspace);
     let home = absolute_path(app_dir, &codex.home);
     std::fs::create_dir_all(&workspace).map_err(|_| "无法创建 Agent 工作目录".to_string())?;
@@ -609,21 +856,9 @@ pub fn prepare(
         std::fs::set_permissions(&config_path, std::fs::Permissions::from_mode(0o600))
             .map_err(|_| "无法保护 Codex 配置权限".to_string())?;
     }
-    let digest = Sha256::digest(websocket_token.as_bytes())
-        .iter()
-        .map(|byte| format!("{byte:02x}"))
-        .collect::<String>();
     let process = ProcessConfig {
         executable: executable.clone(),
-        args: vec![
-            "app-server".into(),
-            "--listen".into(),
-            format!("ws://127.0.0.1:{}", codex.port).into(),
-            "--ws-auth".into(),
-            "capability-token".into(),
-            "--ws-token-sha256".into(),
-            digest.into(),
-        ],
+        args: process_arguments(&websocket_token, 0),
         cwd: Some(workspace.clone()),
         env: vec![
             ("CODEX_HOME".into(), home.as_os_str().into()),
@@ -641,6 +876,7 @@ pub fn prepare(
         executable,
         websocket_token,
         gateway_token,
+        listen_port: AtomicU16::new(0),
         process,
     })
 }
@@ -661,7 +897,9 @@ pub struct TransportConfig {
 impl Default for TransportConfig {
     fn default() -> Self {
         Self {
-            websocket_url: "ws://127.0.0.1:8421".into(),
+            // No fixed endpoint is configured for unprepared services. Prepared agents
+            // replace this with the OS-selected runtime-only port before connecting.
+            websocket_url: "ws://127.0.0.1:0".into(),
             auth_token: None,
             experimental_api: false,
             connect_timeout: Duration::from_secs(5),
@@ -706,7 +944,7 @@ fn validate_base_url(value: &str) -> Result<String, String> {
     Ok(parsed.to_string())
 }
 
-fn redact_value(value: &mut Value, secrets: &[&str]) {
+pub fn redact_value(value: &mut Value, secrets: &[&str]) {
     match value {
         Value::String(text) => {
             for secret in secrets {
@@ -864,7 +1102,6 @@ mod tests {
                 api_key = "LEGACY_FIXTURE_KEY"
                 model = "MiniMax-M3"
                 workspace = "legacy-workspace"
-                port = 9421
             "#,
         )
         .unwrap();
@@ -876,7 +1113,11 @@ mod tests {
         )
         .unwrap();
         assert_eq!(migrated.agent.providers.len(), 1);
-        assert_eq!(migrated.agent.codex.port, 9421);
+        assert!(serde_json::to_value(&migrated).unwrap()["agent"]["codex"]
+            .as_object()
+            .unwrap()
+            .get("port")
+            .is_none());
 
         let corrupt_root = tempfile::tempdir().unwrap();
         let path = corrupt_root.path().join("app_config.json");
@@ -897,6 +1138,11 @@ mod tests {
             "127.0.0.1:8420".parse().unwrap(),
         )
         .unwrap();
+        assert_eq!(
+            prepared.executable.file_name().unwrap().to_string_lossy(),
+            crate::executable::CODEX_PROCESS_FILE_NAME
+        );
+        assert_eq!(prepared.listen_port(), 0);
         let codex_config = std::fs::read_to_string(prepared.home.join("config.toml")).unwrap();
         assert!(codex_config.contains("vha_provider"));
         assert!(!codex_config.contains("PRIVATE"));
@@ -927,8 +1173,121 @@ mod tests {
     }
 
     #[test]
+    fn fixed_port_is_legacy_only_and_runtime_ports_are_rebindable() {
+        let root = tempfile::tempdir().unwrap();
+        let app = prepared_app(root.path());
+        let value = serde_json::to_value(&app).unwrap();
+        assert!(!value.to_string().contains("\"port\""));
+
+        let mut object = value;
+        object["agent"]["codex"]["port"] = json!(9421);
+        let app: AppConfig = serde_json::from_value(object).unwrap();
+        assert!(app.agent.resolve().is_ok());
+        assert!(!serde_json::to_string(&app).unwrap().contains("\"port\""));
+
+        let prepared = prepare(
+            Arc::new(app.agent.resolve().unwrap()),
+            root.path(),
+            "127.0.0.1:8420".parse().unwrap(),
+        )
+        .unwrap();
+        let process = prepared.rebind_port(53211).unwrap();
+        assert_eq!(prepared.listen_port(), 53_211);
+        assert_eq!(prepared.websocket_url(), "ws://127.0.0.1:53211");
+        assert!(process.args.contains(&"ws://127.0.0.1:53211".into()));
+    }
+
+    #[test]
     fn legacy_model_names_become_safe_model_ids() {
         assert_eq!(model_alias("MiniMax-M3 / Large"), "minimax-m3-large");
         assert_eq!(model_alias("///"), "imported-model");
+    }
+
+    #[test]
+    fn config_manager_creates_defaults_updates_atomically_and_retains_keys() {
+        let root = tempfile::tempdir().unwrap();
+        let manager = ConfigManager::new(root.path()).unwrap();
+        assert!(root.path().join("app_config.json").is_file());
+        assert!(manager.current_config().models.is_empty());
+        assert_eq!(manager.revision().len(), 64);
+
+        let mut next = app().agent;
+        let first_revision = manager.revision();
+        let update = manager.update(next.clone(), Some(&first_revision)).unwrap();
+        assert!(!update.codex_changed);
+        assert_ne!(update.revision, first_revision);
+        assert_eq!(
+            manager.current_config().model("mini").unwrap().api_key,
+            "PRIVATE"
+        );
+
+        next.providers[0].api_key = String::new();
+        next.providers[0].models[0].model_name = "Provider Mini 2".into();
+        next.codex.workspace = "data/updated-workspace".into();
+        let update = manager
+            .update(next.clone(), Some(&manager.revision()))
+            .unwrap();
+        assert!(update.codex_changed);
+        assert_eq!(
+            manager.current_config().codex.workspace,
+            PathBuf::from("data/updated-workspace")
+        );
+        assert_eq!(
+            manager.current_config().model("mini").unwrap().model_name,
+            "Provider Mini 2"
+        );
+
+        let saved: AppConfig = serde_json::from_str(
+            &std::fs::read_to_string(root.path().join("app_config.json")).unwrap(),
+        )
+        .unwrap();
+        assert_eq!(saved.agent.providers[0].api_key, "PRIVATE");
+        assert_eq!(
+            saved.agent.codex.workspace,
+            PathBuf::from("data/updated-workspace")
+        );
+
+        let mut response = json!({"message":"key PRIVATE"});
+        manager.redact(&mut response);
+        assert_eq!(response["message"], "key [REDACTED]");
+    }
+
+    #[test]
+    fn initialize_installs_one_process_wide_manager() {
+        let first = tempfile::tempdir().unwrap();
+        initialize(first.path()).unwrap();
+        let manager = global().expect("configuration singleton");
+        assert_eq!(manager.path(), first.path().join("app_config.json"));
+        assert!(current().is_some());
+
+        let second = tempfile::tempdir().unwrap();
+        initialize(second.path()).unwrap();
+        assert_eq!(manager.path(), first.path().join("app_config.json"));
+        assert_ne!(manager.path(), second.path().join("app_config.json"));
+    }
+
+    #[test]
+    fn config_manager_rejects_stale_revisions_and_invalid_updates() {
+        let root = tempfile::tempdir().unwrap();
+        std::fs::create_dir_all(root.path()).unwrap();
+        vha_common::config::save(&root.path().join("app_config.json"), &app()).unwrap();
+        let manager = ConfigManager::new(root.path()).unwrap();
+
+        let mut stale = app().agent;
+        stale.providers[0].models[0].model_name = "stale".into();
+        let error = manager.update(stale, Some("wrong-revision")).unwrap_err();
+        assert!(error.starts_with("CONFIG_CONFLICT"));
+
+        let mut invalid = app().agent;
+        invalid.providers[0].models.push(ModelConfig {
+            model_id: "mini".into(),
+            model_name: "duplicate".into(),
+            ..Default::default()
+        });
+        assert!(manager.update(invalid, Some(&manager.revision())).is_err());
+        assert_eq!(
+            manager.current_config().model("mini").unwrap().model_name,
+            "Provider Mini"
+        );
     }
 }

@@ -12,7 +12,7 @@ use axum::Router;
 use rust_embed::RustEmbed;
 
 use crate::shutdown::{ShutdownController, ShutdownSignal};
-use crate::{agent_api, agent_runtime::AgentRuntime};
+use crate::{agent_api, agent_runtime::AgentRuntime, settings_api};
 use vha_codex_agent::LoadedAgentConfig;
 
 #[derive(RustEmbed)]
@@ -153,6 +153,7 @@ async fn run_server(
             ShutdownSignal::from_controller(&shutdown),
             addr,
         ))
+        .merge(settings_api::routes(service.clone(), addr))
         .merge(gateway)
         .fallback(static_handler);
     let mut signal = ShutdownSignal::from_controller(&shutdown);

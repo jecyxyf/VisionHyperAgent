@@ -204,7 +204,10 @@ async fn drain(
                 total += n as u64;
                 // Chunk-bounded parsing; no unbounded line buffer and no raw prompt/secret logging.
                 let text = String::from_utf8_lossy(&bytes[..n]).to_lowercase();
-                let category = if text.contains("address already in use") {
+                let category = if text.contains("address already in use")
+                    // Windows reports Winsock error 10048 with this wording.
+                    || text.contains("only one usage of each socket address")
+                {
                     Some("Codex listening port is already in use")
                 } else if text.contains("failed to parse") || text.contains("error loading config")
                 {

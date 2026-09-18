@@ -9,11 +9,11 @@
 - 托盘“退出”：中断任务、停止 Codex、关闭 HTTP，然后后端进程退出。
 - 配置失败：保留网页、托盘和日志入口，界面显示可修复的错误。
 
-Linux 可执行文件为 `bin/VisionHyperAgent`；Windows 为 `bin/VisionHyperAgent.exe`，并需要同平台的原生 Codex 可执行文件。
+Windows 部署包为 `bin/VisionHyperAgent-windows-x64.zip`。解压后运行 `VisionHyperAgent.exe`，并需要能找到同平台原生 Codex 可执行文件。首次启动会把找到的 Codex 复制为应用目录下的 `VisionHyperAgentCodex.exe`，后续子进程使用该独立文件名。
 
 ## app_config.json
 
-把 `docs/app-config.example.json` 复制为 **可执行文件目录** 下的 `app_config.json`，填入私有密钥。该文件不进入 Git；Unix 权限建议为 `600`。文件不存在时会自动生成空默认配置；JSON 损坏时会备份为 `app_config.json.invalid-时间戳` 并重建默认文件。
+`app_config.json` 位于 **可执行文件目录**，由后端全局配置单例读取和保存。该文件不进入 Git；Unix 权限建议为 `600`。文件不存在时会自动生成空默认配置；JSON 损坏时会备份为 `app_config.json.invalid-时间戳` 并重建默认文件。也可以直接在网页“设置 → Agent 配置”中编辑。
 
 配置说明：
 
@@ -32,9 +32,22 @@ Linux 可执行文件为 `bin/VisionHyperAgent`；Windows 为 `bin/VisionHyperAg
 | `codex.executable` | 可选原生 Codex 路径；空值按应用目录、`depends/codex` 和 PATH 查找 |
 | `codex.workspace` | Agent 工作目录，相对路径基于应用目录 |
 | `codex.home` | 独立 `CODEX_HOME`，不修改用户 `~/.codex` |
-| `codex.port` | 本机 Codex WebSocket 端口，不能使用 8420 |
+| `codex.port` | 已废弃：旧配置中的字段会被忽略，端口由后端每次启动自动分配 |
 
-启动时后端会校验 Provider/Model ID、URL、端口、超时、Effort 支持和图片能力，并建立 `modelId -> ResolvedModel` 哈希索引；发送请求时 O(1) 查找，不做逐次遍历。
+启动时后端会校验 Provider/Model ID、URL、超时、Effort 支持和图片能力，并建立 `modelId -> ResolvedModel` 哈希索引；发送请求时 O(1) 查找，不做逐次遍历。Codex WebSocket 端口不写入配置，由操作系统分配本机随机端口；冲突时自动换端口重试，最多 20 次。旧配置中的 codex.port 在下一次保存时自动移除。
+
+## 网页设置
+
+打开“设置 → Agent 配置”后可以编辑默认模型、多个 Provider、多个模型和 Codex 高级参数。保存时后端会：
+
+1. 校验同源请求与专用 `X-VHA-Settings` 标识；
+2. 比较 revision，检测配置是否已被外部修改；
+3. 校验 Provider、Model、Effort、URL 和 Codex 参数；
+4. 对留空 API Key 按 Provider ID 保留旧密钥；
+5. 原子写入 `app_config.json`；
+6. 发布新的运行时配置快照并刷新模型列表。
+
+真实 API Key 不会回显到浏览器。新 Provider 必须填写 Key；已配置 Provider 可以留空表示不变。模型和 Provider 参数保存后即时生效；Codex 参数保存后需要重启 VisionHyperAgent，界面会明确提示。
 
 Codex 提议提升执行策略时，界面会出现“本次允许并应用提议权限”。后端只原样转发 Codex 给出的修正对象，且要求它与 `availableDecisions` 完全一致，前端不能伪造或扩大权限。
 
@@ -52,7 +65,7 @@ Codex 提议提升执行策略时，界面会出现“本次允许并应用提�
 → 按 wireApi 转发或协议转换
 ```
 
-内部网关每次启动生成随机 Bearer token，拒绝浏览器 Origin。Provider 密钥不进入前端、日志、Codex `config.toml`、命令行参数或工具环境。
+内部网关每次启动生成随机 Bearer token，拒绝浏览器 Origin。Provider 密钥不进入前端、日志、Codex `config.toml`、命令行参数或工具环境；网关每个请求开始时捕获一次配置快照，避免请求中途配置切换造成模型和密钥来源不一致。
 
 ## 日志与测试
 

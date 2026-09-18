@@ -1,5 +1,12 @@
 # App 配置重构计划
 
+| 项目 | 内容 |
+| --- | --- |
+| 更新日期 | 2026-09-18 |
+| 状态 | 多 Provider 配置、O(1) 模型索引、全局配置单例和网页设置已完成 |
+
+当前补充实现：`ConfigManager` 是进程级单例；`/api/settings/agent` 负责脱敏读取、revision 冲突检测、API Key 留空保留、原子保存和运行时快照发布。模型 / Provider 配置保存后即时生效；Codex 参数保存后提示重启。详见 [frontend-backend-architecture.md](frontend-backend-architecture.md) 与 [codex-agent-usage.md](codex-agent-usage.md)。
+
 ## 目标
 
 `app_config.json` 支持多 Provider、多模型和 Codex 参数；启动时建立 `model_id -> ResolvedModel` 索引，前端请求时直接 O(1) 查找。

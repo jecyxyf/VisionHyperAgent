@@ -21,7 +21,7 @@ impl Drop for Scratch {
         let _ = std::fs::remove_dir_all(&self.0);
     }
 }
-fn config(root: &Scratch, exe: PathBuf, port: u16) -> LoadedAgentConfig {
+fn config(root: &Scratch, exe: PathBuf) -> LoadedAgentConfig {
     let agent = AgentConfig {
         active_model_id: "lifecycle-fixture".into(),
         providers: vec![ProviderConfig {
@@ -41,7 +41,6 @@ fn config(root: &Scratch, exe: PathBuf, port: u16) -> LoadedAgentConfig {
             executable: Some(exe),
             workspace: root.0.join("data/workspace"),
             home: root.0.join("data/codex"),
-            port,
             ..Default::default()
         },
     };
@@ -51,13 +50,6 @@ fn config(root: &Scratch, exe: PathBuf, port: u16) -> LoadedAgentConfig {
         migrated: false,
         recovered_from: None,
     }
-}
-fn free_port() -> u16 {
-    std::net::TcpListener::bind("127.0.0.1:0")
-        .unwrap()
-        .local_addr()
-        .unwrap()
-        .port()
 }
 async fn status(url: &str) -> Value {
     reqwest::get(format!("{url}/api/agent/status"))
@@ -112,25 +104,9 @@ async fn configuration_failure_keeps_http_and_live_websocket_shutdown_is_bounded
 }
 
 #[tokio::test]
-async fn occupied_codex_port_is_not_connected_to_or_killed() {
-    let root = Scratch::new();
-    let occupied = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
-    let port = occupied.local_addr().unwrap().port();
-    let settings = config(&root, std::env::current_exe().unwrap(), port);
-    let server =
-        http_server::start_with_codex("127.0.0.1:0".parse().unwrap(), &root.0, Ok(settings))
-            .unwrap();
-    let state = phase(&format!("http://{}", server.address()), "error").await;
-    assert!(state["message"].as_str().unwrap().contains("端口已被占用"));
-    assert!(state["pid"].is_null());
-    server.stop().unwrap();
-    assert!(std::net::TcpStream::connect(occupied.local_addr().unwrap()).is_ok());
-}
-
-#[tokio::test]
 async fn early_child_exit_is_reported_without_closing_the_application() {
     let root = Scratch::new();
-    let settings = config(&root, std::env::current_exe().unwrap(), free_port());
+    let settings = config(&root, std::env::current_exe().unwrap());
     let server =
         http_server::start_with_codex("127.0.0.1:0".parse().unwrap(), &root.0, Ok(settings))
             .unwrap();
@@ -154,7 +130,7 @@ async fn native_startup_and_normal_shutdown_reap_codex_with_browser_connected() 
     let root = Scratch::new();
     let exe =
         PathBuf::from(std::env::var_os("VHA_TEST_CODEX_NATIVE").expect("native Codex executable"));
-    let settings = config(&root, exe, free_port());
+    let settings = config(&root, exe);
     let server =
         http_server::start_with_codex("127.0.0.1:0".parse().unwrap(), &root.0, Ok(settings))
             .unwrap();
@@ -185,7 +161,7 @@ async fn unexpected_native_child_death_keeps_http_available_and_reports_failure(
     let root = Scratch::new();
     let exe =
         PathBuf::from(std::env::var_os("VHA_TEST_CODEX_NATIVE").expect("native Codex executable"));
-    let settings = config(&root, exe, free_port());
+    let settings = config(&root, exe);
     let server =
         http_server::start_with_codex("127.0.0.1:0".parse().unwrap(), &root.0, Ok(settings))
             .unwrap();

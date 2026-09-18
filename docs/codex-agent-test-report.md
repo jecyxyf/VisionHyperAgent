@@ -50,11 +50,12 @@
 | 要求 | 实际结果 |
 | --- | --- |
 | 主程序自动启动 Codex | 已验证后台状态及真实子进程 PID |
+| 独立 Codex 进程名 | 首次启动自动生成 `VisionHyperAgentCodex`；子进程命令行、监听端口和主进程退出回收已实测 |
 | 真实 Linux 托盘退出 | 调用本应用托盘“退出”菜单后，HTTP 关闭，宿主与 Codex 均被回收，约 0.113 秒 |
 | 主程序遭 SIGKILL | 直属 Codex 随父进程退出，HTTP 关闭，约 0.05 秒；未手工结束子进程来伪造结果 |
 | 网页关闭不控制后台生命周期 | 真实浏览器关闭、重开及继续停止任务验证通过 |
 | Codex 意外退出 | 保留 HTTP/UI、显示失败、清除运行/审批状态，不自动拉起新进程 |
-| 初始化错误/端口占用 | 保留可观察错误，不连接或结束其他占用端口的程序 |
+| 初始化错误/随机端口冲突 | 非端口类初始化错误保留可观察错误；端口冲突只重试新的本机随机端口，不连接或结束其他占用端口的程序 |
 | Windows 启动顺序 | 生产路径共用的“先加入 Job 后恢复”和“失败回滚回收”逻辑已注入故障测试；Win32 路径交叉检查通过 |
 | 私有 Codex WebSocket | 缺失/错误令牌返回 401；带浏览器 Origin 返回 403 |
 | 模型兼容层 | 拒绝浏览器 Origin 与无令牌请求；上游鉴权失败不回显上游原始错误体 |
@@ -63,6 +64,15 @@
 
 生命周期证据：`final/native-lifecycle.txt`；其中包含正常退出回收与子进程 SIGKILL 后保留 HTTP 的用例。此前 Linux 实机托盘退出亦已验收。
 隐私证据：`final/credential-audit.json`、`final/workspace-tests.txt` 与当前部署包扫描。
+
+## 2026-09-18 随机端口回归
+
+- `cargo test --manifest-path source/backend/Cargo.toml --workspace`：117 项通过（另有 2 项原生 Codex 专项默认跳过）。
+- 显式执行本机 Codex 0.154.0 的正常启动/关闭生命周期用例：1 项通过，确认生产路径使用运行期随机端口并回收私有 Codex 子进程。
+- `cargo clippy --manifest-path source/backend/Cargo.toml --workspace --all-targets -- -D warnings`：通过。
+- 前端 `check`、`check:tests`、`test:unit`、`build`：通过；22 个单元测试通过。
+- Windows x86_64 GNU release 构建、前端生产构建和绿色 zip 打包：通过。
+- 配置回归：新配置不输出 `codex.port`；旧配置中的 `port` 可读取、不参与运行，并在下一次保存时移除；运行期重绑端口会同步更新 WebSocket URL 和 Codex 启动参数。
 
 **Windows 说明：没有在 Windows 实机执行托盘和 Job Object 测试。**
 本报告中的 Windows 结果是生产路径逻辑测试与交叉编译结果，不能解释为实机行为已经验证。真实 Windows 行为仍应按使用说明进行设备验收。
@@ -80,12 +90,10 @@
 
 ## 交付
 
-- `bin/VisionHyperAgent`
-- `bin/VisionHyperAgent.exe`
 - `bin/VisionHyperAgent-windows-x64.zip`
 - 使用说明：`docs/codex-agent-usage.md`
 - 无密钥配置示例：`docs/app-config.example.json`
 
 产物 SHA256 与文件大小见 `bin/test-artifacts/final/artifacts.json`。
-Windows 包不含真实密钥或 Linux 的 Codex 二进制，需要 Windows Codex 原生可执行文件。
+Windows 包不含真实密钥或 Linux 的 Codex 二进制，需要能在目标机器上找到 Windows Codex 原生可执行文件；首次启动会生成本应用私有的 `VisionHyperAgentCodex.exe` 副本。
 未经用户要求，本次代码与文档不提交、不推送。

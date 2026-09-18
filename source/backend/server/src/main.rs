@@ -46,7 +46,7 @@ fn main() {
     log::info!("local address configured, listen_addr={addr}");
 
     let app_dir = application_dir();
-    let loaded = vha_codex_agent::config::load(&app_dir).map_err(|error| {
+    let loaded = vha_codex_agent::config::initialize(&app_dir).map_err(|error| {
         log::error!("Agent configuration failed: {error}");
         error
     });

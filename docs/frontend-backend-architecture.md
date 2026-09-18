@@ -2,7 +2,7 @@
 
 | 项目 | 内容 |
 | --- | --- |
-| 更新日期 | 2026-09-17 |
+| 更新日期 | 2026-09-18 |
 | 状态 | 当前已实现代码的架构说明 |
 | 范围 | 浏览器 Agent 面板、Rust 本地后端、Codex 进程与协议调用链 |
 | 不包含 | 训练、标注、推理等后续业务模块 |
@@ -30,6 +30,7 @@
 │ AttachmentStore：附件落盘与 opaque ID               │
 │ AgentRuntime：唯一拥有并监督 Codex 子进程            │
 │ ModelGateway：可选 Chat Completions 兼容层          │
+│ ConfigManager：全局 Agent 配置快照与原子更新         │
 │ Tray / Browser / Logging / Shutdown                │
 └───────┬──────────────────────────────┬────────────┘
         │ 本机 WebSocket + token          │ 模型 HTTP
@@ -47,13 +48,16 @@
 - **前端“停止”只中断当前回合**：不结束 Codex，也不影响其他会话的回合。
 - **CodexAgent 不管理进程**：它只是 Codex App Server 的 WebSocket/JSON-RPC 客户端；进程启动和停止由 AgentRuntime 调用 CodexProcess 完成。
 - **浏览器不接触模型密钥**：密钥只存在于后端私有配置和进程环境中；前端响应和日志会做脱敏。
+- **Agent 配置是进程级单例**：启动时安装，业务读当前快照；设置页保存时原子写盘并发布新快照。
 
 ## 2. 当前目录边界
 
 ~~~text
 source/frontend/
 ├── src/lib/api/websocket.ts                  # Agent WebSocket RPC 客户端
+├── src/lib/api/agentSettings.ts              # Agent 设置 HTTP 客户端
 ├── src/lib/components/AgentPanel.svelte       # Agent 业务容器
+├── src/lib/components/settings/              # Provider / Model / Codex 设置编辑器
 ├── src/lib/components/agent/
 │   ├── AgentHistoryPanel.svelte               # 历史会话面板
 │   ├── AgentAttachmentList.svelte              # 发送前附件列表
@@ -72,6 +76,7 @@ source/backend/
 │   ├── src/agent_service.rs                   # Agent 业务服务
 │   ├── src/agent_events.rs                    # Codex 事件归并和状态修复
 │   ├── src/agent_runtime.rs                   # Codex 进程监督者
+│   ├── src/settings_api.rs                   # Agent 配置读写 API
 │   ├── src/attachments.rs                     # 附件存储
 │   ├── src/model_gateway/                     # 可选模型协议兼容层
 │   ├── src/tray.rs / browser.rs / shutdown.rs # 托盘、浏览器、关闭信号
@@ -224,6 +229,26 @@ ThreadPage
 
 `AgentModel.inputModalities` 决定是否允许拖入图片。Effort 选项完全来自当前模型的 `supportedReasoningEfforts`；切换模型后自动使用该模型 `defaultReasoningEffort`，不做静默映射。
 
+### 3.6 Agent 设置模块
+
+位置：
+
+~~~text
+source/frontend/src/lib/api/agentSettings.ts
+source/frontend/src/lib/components/settings/
+~~~
+
+| 模块 | 职责 |
+| --- | --- |
+| agentSettings.ts | `loadAgentSettings()` / `saveAgentSettings()`，处理 revision、请求头和错误类型 |
+| AgentSettings.svelte | 设置页编排：读取 / 重置 / 校验 / 保存、默认模型、保存提示 |
+| ProviderEditor.svelte | 编辑 Provider ID、Base URL、API Key、wireApi 和模型列表 |
+| ModelEditor.svelte | 编辑 modelId、modelName、支持 Effort、默认 Effort 和图片能力 |
+| CodexAdvancedSettings.svelte | 编辑 Codex 路径、目录、超时和容量；端口显示为后端自动分配 |
+| validation.ts | 前端即时校验；后端仍是最终校验来源 |
+
+安全语义：后端 GET 只返回 `apiKey: ""` 与 `apiKeyConfigured`。已配置 Key 留空保存时由后端按 Provider ID 保留；新 Provider 必须输入 Key。前端不持久化真实密钥。
+
 ## 4. 浏览器与后端接口
 
 ### 4.1 HTTP
@@ -232,6 +257,8 @@ ThreadPage
 | --- | --- | --- | --- | --- |
 | GET | /api/health | 无 | ok | 健康检查 |
 | GET | /api/agent/status | 无 | AgentSnapshot | 当前状态 |
+| GET | /api/settings/agent | 无 | revision + Agent 脱敏配置 | API Key 不回显 |
+| POST | /api/settings/agent | revision + Agent 配置 | ok / revision / restartRequired | 校验、保留密钥、原子保存并发布快照 |
 | POST | /api/agent/attachments | multipart，字段名必须为 file | {"attachment": Attachment} | 单文件上传，最大 16 MiB |
 | DELETE | /api/agent/attachments/{id} | 路径参数为后端 UUID | {} | 删除未被会话引用的附件 |
 
@@ -369,7 +396,7 @@ TurnStartParams：
 启动序列：
 
 1. 初始化全局日志。
-2. 以可执行文件目录为应用目录，调用 `vha_codex_agent::config::load()` 读取或恢复 `app_config.json`。
+2. 以可执行文件目录为应用目录，调用 `vha_codex_agent::config::initialize()` 安装全局配置单例并读取或恢复 `app_config.json`。
 3. 固定监听 `127.0.0.1:8420`；配置错误不会退出，会转换为可观察状态。
 4. GUI 模式创建托盘并打开浏览器；`--headless` 模式等待信号，用于自动化测试。
 
@@ -392,7 +419,7 @@ pub fn save<T>(path: &Path, value: &T) -> Result<(), ConfigError>;
 | `start_with_codex(addr, app_dir, loaded)` | 启动 HTTP 并准备 AgentRuntime |
 | `ServerHandle::address()` / `stop()` | 返回实际地址 / 优雅停止并等待 |
 
-路由包含 `/api/health`、`/api/agent/*`、`/ws`、内部模型网关和打包前端静态资源。
+路由包含 `/api/health`、`/api/agent/*`、`/api/settings/agent`、`/ws`、内部模型网关和打包前端静态资源。
 
 ### 5.4 AgentRuntime
 
@@ -409,7 +436,7 @@ impl AgentRuntime {
 }
 ~~~
 
-职责：调用 `prepare()`、创建 `CodexAgent` 和 `AgentService`、预检 Codex 端口、启动并监督 Codex 子进程、退出时中断任务并回收进程。它是应用层唯一拥有 Codex 生命周期的模块。
+职责：调用 `prepare()`、创建 `CodexAgent` 和 `AgentService`、为 Codex 分配运行期随机端口、启动并监督 Codex 子进程、退出时中断任务并回收进程。它是应用层唯一拥有 Codex 生命周期的模块。
 
 ### 5.5 AgentService
 
@@ -424,6 +451,8 @@ pub struct AgentService {
 主要接口：`new()`、`subscribe()`、`sanitize()`、`emit()`、`process_status()`、`snapshot()`、`call()`、`begin_shutdown()`、`interrupt_all()`。
 
 `call()` 是浏览器白名单入口，负责 ready / closing 检查、参数校验、`modelId` O(1) 查找、Effort 与图片能力校验、活动回合互斥、附件转换、超时不确定状态和响应脱敏。
+
+`apply_configuration_change(codex_changed)` 在保存后刷新模型列表并广播 status。模型 / Provider 配置即时生效；Codex 参数变化只进入 error 提示状态并要求重启应用，不做危险热重启。
 
 ### 5.6 agent_events.rs / agent_api.rs / AttachmentStore
 
@@ -441,9 +470,18 @@ pub struct AgentService {
 | `request.rs` | Responses 请求转 Chat Completions 请求 |
 | `protocol.rs` | Chat SSE 转 Responses SSE、Responses 透传流 redaction |
 
-内部端点为 `POST /internal/model/v1/responses`。`responses` Provider 流式透传；`chat_completions` Provider 做协议转换。上游错误不回显 body，Provider 密钥不出现在响应中。
+内部端点为 `POST /internal/model/v1/responses`。`responses` Provider 流式透传；`chat_completions` Provider 做协议转换。上游错误不回显 body，Provider 密钥不出现在响应中。每个请求开始时捕获一次配置快照，避免请求中途配置切换造成模型和密钥来源不一致。
 
-### 5.8 托盘、浏览器与关闭信号
+### 5.8 settings_api.rs
+
+| 接口 | 行为 |
+| --- | --- |
+| GET /api/settings/agent | 从全局 ConfigManager 读取磁盘配置，输出 revision、configPath 和脱敏 Agent 配置 |
+| POST /api/settings/agent | 要求同源 Origin 与 `X-VHA-Settings: 1`；校验 revision 和配置 |
+
+保存流程：合并旧 API Key → 校验 → 原子写 `app_config.json` → 发布新运行时快照 → 通知 AgentService 刷新。revision 不匹配返回 409 `config_conflict`，配置非法返回 400 `invalid_config`。Codex 参数变化或启动时 Agent 未准备成功时返回 `restartRequired: true`。
+
+### 5.9 托盘、浏览器与关闭信号
 
 `tray.rs` 提供托盘菜单“打开界面 / 退出”；`browser.rs` 打开系统浏览器；`shutdown.rs` 广播退出信号。浏览器连接断开不触发退出。
 
@@ -458,6 +496,7 @@ CodexAgent
 AppConfig / AgentConfig / ProviderConfig / ModelConfig / CodexConfig
 LoadedAgentConfig / ResolvedAgentConfig / ResolvedModel / PreparedAgent
 ProviderWireApi / TransportConfig
+config::ConfigManager / config::ConfigUpdate
 AgentError / Result
 CodexProcess / ProcessConfig
 types.rs 中的全部协议类型
@@ -472,7 +511,7 @@ types.rs 中的全部协议类型
 | process.rs | 跨平台子进程启动、等待、优雅停止、强杀 |
 | process/windows.rs | Windows Job Object 细节 |
 | config.rs | app_config.json、多 Provider 模型索引、Codex 启动准备 |
-| executable.rs | 原生 Codex 可执行文件解析 |
+| executable.rs | 原生 Codex 可执行文件解析，并安装 `VisionHyperAgentCodex` 独立进程副本 |
 | types.rs | 协议 DTO 与事件 |
 | error.rs | 错误类型 |
 
@@ -495,6 +534,24 @@ impl ResolvedAgentConfig {
 ~~~
 
 `ResolvedModel` 合并 Provider URL、密钥、wire API、上游模型名、支持 Effort 和图片能力，建立 O(1) 索引。
+
+配置由进程级 `ConfigManager` 单例管理：
+
+~~~rust
+pub fn initialize(app_dir: &Path) -> Result<LoadedAgentConfig, String>;
+pub fn global() -> Option<&'static ConfigManager>;
+pub fn current() -> Option<Arc<ResolvedAgentConfig>>;
+
+impl ConfigManager {
+    pub fn app_config(&self) -> AppConfig;
+    pub fn current_config(&self) -> Arc<ResolvedAgentConfig>;
+    pub fn revision(&self) -> String;
+    pub fn update(&self, agent: AgentConfig, expected_revision: Option<&str>) -> Result<ConfigUpdate, String>;
+    pub fn redact(&self, value: &mut Value);
+}
+~~~
+
+磁盘态保存用户输入的 JSON；运行态合并环境变量覆盖并持有 `Arc` 快照。更新失败不污染当前快照，成功保存后 revision 才前进。
 
 `prepare(config, app_dir, address)` 创建 workspace 和独立 `CODEX_HOME`，生成随机 WebSocket / Gateway token，写入不含 Provider 密钥的 Codex `config.toml`，并返回 `ProcessConfig`。`PreparedAgent::redact()` 负责响应脱敏。
 
@@ -574,6 +631,7 @@ impl CodexProcess {
 
 - Linux：自有进程组；启动时处理父进程死亡信号；正常退出时清理本进程组。
 - Windows：挂起创建，加入 KILL_ON_JOB_CLOSE 的 Job Object，再恢复执行；加入失败会回收子进程。
+- 可执行文件使用应用私有的 `VisionHyperAgentCodex(.exe)` 副本，避免与本机其他 Codex 进程混淆。
 - 只操作本应用创建并持有的子进程，禁止按进程名批量杀掉其他 Codex。
 - stdout 和 stderr 会被读取，避免管道写满阻塞子进程，但不会把原始敏感内容写入日志。
 
@@ -637,6 +695,20 @@ impl CodexProcess {
 → 托盘移除，主进程退出
 ~~~
 
+### 7.5 保存 Agent 配置
+
+~~~text
+设置页编辑 JSON 视图
+→ 前端本地校验
+→ POST revision + Agent 配置
+→ 后端校验 revision / Provider / Model / Codex
+→ 留空 API Key 按 Provider ID 保留旧值
+→ app_config.json 原子替换
+→ ConfigManager 发布新 Arc<ResolvedAgentConfig>
+→ AgentService 刷新模型列表并推送 status
+→ 模型配置即时生效；Codex 参数提示重启
+~~~
+
 ## 8. 测试入口
 
 当前与架构直接相关的测试：
@@ -646,6 +718,7 @@ impl CodexProcess {
 | model/codex_agent/tests | 模拟 WebSocket、协议、真实 Codex 忽略测试、进程生命周期 |
 | server/src/agent_api_tests.rs | 浏览器 API、Origin、并发、关闭行为 |
 | server/src/agent_service_tests.rs | 业务方法、停止、审批、状态一致性 |
+| server/src/settings_api_tests.rs | 配置脱敏、同源保护、revision 冲突与重启提示 |
 | server/src/model_gateway/http_tests.rs 与 protocol_tests.rs | 协议转换、SSE、安全与失败语义 |
 | server/tests | 服务和端到端生命周期 |
 | frontend/tests/unit | 消息转换、状态与组件 |

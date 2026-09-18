@@ -18,12 +18,43 @@ use std::convert::Infallible;
 use std::pin::Pin;
 use std::sync::Arc;
 use std::time::Duration;
-use vha_codex_agent::{PreparedAgent, ProviderWireApi};
+use vha_codex_agent::{
+    config::{redact_value, ConfigManager},
+    PreparedAgent, ProviderWireApi, ResolvedAgentConfig,
+};
 
 #[derive(Clone)]
 struct Gateway {
     agent: Arc<PreparedAgent>,
     client: reqwest::Client,
+}
+
+#[derive(Clone)]
+struct RuntimeConfig {
+    resolved: Arc<ResolvedAgentConfig>,
+    manager: Option<&'static ConfigManager>,
+}
+
+impl RuntimeConfig {
+    fn new(fallback: &Arc<PreparedAgent>) -> Self {
+        Self {
+            resolved: vha_codex_agent::config::current().unwrap_or_else(|| fallback.config.clone()),
+            manager: vha_codex_agent::config::global(),
+        }
+    }
+
+    fn redact(&self, value: &mut Value) {
+        if let Some(manager) = self.manager {
+            manager.redact(value);
+        }
+        let secrets: Vec<_> = self
+            .resolved
+            .models
+            .values()
+            .map(|model| model.api_key.as_str())
+            .collect();
+        redact_value(value, &secrets);
+    }
 }
 
 pub(crate) fn routes(agent: Option<Arc<PreparedAgent>>) -> Result<Router, String> {
@@ -79,10 +110,11 @@ fn failure(status: StatusCode, message: &str) -> Response {
 }
 
 async fn responses(State(gateway): State<Gateway>, Json(mut request): Json<Value>) -> Response {
+    let config = RuntimeConfig::new(&gateway.agent);
     let Some(model_id) = request.get("model").and_then(Value::as_str) else {
         return failure(StatusCode::BAD_REQUEST, "model is required");
     };
-    let Some(model) = gateway.agent.config.model(model_id) else {
+    let Some(model) = config.resolved.model(model_id) else {
         return failure(
             StatusCode::BAD_REQUEST,
             "Model is not enabled in backend configuration",
@@ -116,7 +148,7 @@ async fn responses(State(gateway): State<Gateway>, Json(mut request): Json<Value
             .with_tool_names(converted.tool_names);
         let pending = adapter.begin().into_iter().map(encode).collect();
         let state = ChatStreamState {
-            agent: gateway.agent.clone(),
+            config,
             upstream: Box::pin(upstream.bytes_stream()),
             decoder: SseDecoder::default(),
             adapter,
@@ -131,7 +163,7 @@ async fn responses(State(gateway): State<Gateway>, Json(mut request): Json<Value
         Err(response) => return response,
     };
     let state = ResponsesStreamState {
-        agent: gateway.agent.clone(),
+        config,
         upstream: Box::pin(upstream.bytes_stream()),
         decoder: SseDecoder::default(),
         pending: VecDeque::new(),
@@ -195,7 +227,7 @@ fn upstream_failure(status: StatusCode) -> Response {
 }
 
 struct ChatStreamState {
-    agent: Arc<PreparedAgent>,
+    config: RuntimeConfig,
     upstream: Pin<Box<dyn Stream<Item = Result<Bytes, reqwest::Error>> + Send>>,
     decoder: SseDecoder,
     adapter: ChatStream,
@@ -204,7 +236,7 @@ struct ChatStreamState {
 }
 
 struct ResponsesStreamState {
-    agent: Arc<PreparedAgent>,
+    config: RuntimeConfig,
     upstream: Pin<Box<dyn Stream<Item = Result<Bytes, reqwest::Error>> + Send>>,
     decoder: SseDecoder,
     pending: VecDeque<Bytes>,
@@ -254,7 +286,7 @@ impl ChatStreamState {
     fn fail(&mut self, message: &str) {
         log::warn!("Model compatibility stream failed: {message}");
         let mut event = self.adapter.fail(message);
-        self.agent.redact(&mut event);
+        self.config.redact(&mut event);
         self.pending.push_back(encode(event));
         self.finished = true;
     }
@@ -280,7 +312,7 @@ fn stream_responses(state: ResponsesStreamState) -> impl Stream<Item = Result<By
                             }
                             match serde_json::from_str::<Value>(&event) {
                                 Ok(mut event) => {
-                                    state.agent.redact(&mut event);
+                                    state.config.redact(&mut event);
                                     state.pending.push_back(encode(event));
                                 }
                                 Err(_) => {

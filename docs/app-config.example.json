@@ -23,7 +23,6 @@
       "executable": null,
       "workspace": "data/workspace",
       "home": "data/codex",
-      "port": 8421,
       "connectTimeoutMs": 5000,
       "requestTimeoutMs": 30000,
       "reconnectIntervalMs": 500,

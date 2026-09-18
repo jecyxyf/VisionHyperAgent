@@ -12,11 +12,11 @@ Agent 驱动的视觉模型桌面软件。
 
 ## 直接运行
 
-Linux 使用 `bin/VisionHyperAgent`，Windows 使用 `bin/VisionHyperAgent.exe`。
+Windows 部署包为 `bin/VisionHyperAgent-windows-x64.zip`。解压后运行 `VisionHyperAgent.exe`。
 启动后自动打开 `http://127.0.0.1:8420/`；从托盘退出会回收 Codex。关闭网页不会关闭后端。
 
-需要可用的 Codex 原生可执行文件，以及应用目录内的私有 `config.local.toml` 或对应环境变量。
-配置示例：`docs/codex-agent-config.example.toml`。
+需要可用的 Codex 原生可执行文件，以及应用目录内的私有 `app_config.json`。
+配置示例：`docs/app-config.example.json`。
 详细说明：`docs/codex-agent-usage.md`。
 
 ## 开发构建
@@ -28,7 +28,7 @@ Linux 使用 `bin/VisionHyperAgent`，Windows 使用 `bin/VisionHyperAgent.exe`�
 cargo build --manifest-path source/backend/Cargo.toml --release -p vha-server
 ```
 
-或者执行 `./build.sh` 构建并更新 `bin/` 中的本平台产物。
+或者执行 `./build.sh` 构建并在 `bin/` 中生成 Windows 绿色程序压缩包；不再输出裸 exe。
 修改前端后需重新构建后端，才能更新内嵌页面。
 
 开发调试：
@@ -65,5 +65,5 @@ source/backend/core/        配置/事件总线基础模块
 source/backend/model/
   codex_agent/              Codex WebSocket 客户端和进程操作原语
 source/backend/depends/     第三方依赖源码
-bin/                        构建产物、本机私有配置和忽略的测试证据
+bin/                        Windows 压缩包、本机私有配置和忽略的测试证据
 ```

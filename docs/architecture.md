@@ -2,7 +2,7 @@
 
 | 项目 | 内容 |
 |------|------|
-| 日期 | 2026-09-16 |
+| 日期 | 2026-09-18 |
 | 状态 | Web 架构已确认 |
 | 核心决策 | 浏览器前端 + Rust 本地后端，放弃 PySide6/QML 桌面方案 |
 | 当前实现 | Agent 前后端模块与接口详见 [frontend-backend-architecture.md](frontend-backend-architecture.md) |
@@ -71,6 +71,17 @@ YYYY-MM-DD HH:mm:ss.SSS [级别] [模块:行号] 日志内容
 
 `DEBUG`、`WARNING`、`ERROR` 记录 `模块:行号`，`INFO` 不记录来源位置。默认 release 记录 `INFO`，debug 构建记录 `DEBUG`，可用环境变量 `VHA_LOG_LEVEL=error|warning|info|debug` 临时调整。日志不记录用户消息、附件内容和密钥。
 
+### 2.2 全局 Agent 配置
+
+Agent 配置由 `vha_codex_agent::config::ConfigManager` 提供进程级单例。主程序启动时调用 `config::initialize(app_dir)` 安装单例：它读取或创建 `app_config.json`，保存磁盘原始配置，并把多 Provider / 多模型配置解析成 `Arc<ResolvedAgentConfig>` 运行时快照。
+
+Codex 可执行文件解析后会安装为应用目录中的独立副本：Windows 为 `VisionHyperAgentCodex.exe`，Unix 为 `VisionHyperAgentCodex`。子进程因此与本机其他 Codex 实例在进程名、端口、工作目录和 HOME 上隔离；应用只管理自己创建的这个子进程。
+
+- 读侧：AgentService、模型网关和设置 API 都从当前快照取 `modelId -> ResolvedModel` 索引。
+- 写侧：设置 API 校验、按 Provider ID 保留未回显的 API Key、原子写入 JSON，再一次性发布新快照。
+- 边界：`source/backend/common/src/config.rs` 只负责通用 JSON 读取、备份和原子写入，不理解 Agent 字段。
+- 安全：API Key 不回显给浏览器，不写入日志；环境变量覆盖只作用于运行时，不写回 JSON。
+
 ## 3. 前后端通信
 
 ### 3.1 HTTP REST（低频操作）
@@ -79,7 +90,7 @@ YYYY-MM-DD HH:mm:ss.SSS [级别] [模块:行号] 日志内容
 |------|------|------|
 | /api/projects | GET/POST | 项目列表/创建 |
 | /api/models | GET | 模型列表 |
-| /api/config | GET/PUT | 配置读写 |
+| /api/settings/agent | GET/POST | Agent 配置读取 / 保存并生效 |
 
 ### 3.2 WebSocket（实时）
 
@@ -122,7 +133,7 @@ VisionHyperAgent/
 │       └── pages/                 # 页面
 ├── source/backend/                       # Rust 后端
 │   ├── Cargo.toml                 # Workspace
-│   ├── common/                    # 全局日志、原子 JSON 配置
+│   ├── common/                    # 全局日志、通用原子 JSON 读写
 │   ├── server/                    # axum HTTP/WS、托盘、Agent 服务
 │   ├── core/                      # 事件总线等预留业务核心
 │   └── model/
