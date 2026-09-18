@@ -9,7 +9,7 @@
 - 托盘“退出”：中断任务、停止 Codex、关闭 HTTP，然后后端进程退出。
 - 配置失败：保留网页、托盘和日志入口，界面显示可修复的错误。
 
-Windows 部署包为 `bin/VisionHyperAgent-windows-x64.zip`。解压后运行 `VisionHyperAgent.exe`，并需要能找到同平台原生 Codex 可执行文件。首次启动会把找到的 Codex 复制为应用目录下的 `VisionHyperAgentCodex.exe`，后续子进程使用该独立文件名。
+Linux 部署包为 `bin/VisionHyperAgent-linux-x64.zip`，解压后运行 `./VisionHyperAgent`；Windows 部署包为 `bin/VisionHyperAgent-windows-x64.zip`，解压后运行 `VisionHyperAgent.exe`。两者都需要能找到同平台原生 Codex 可执行文件。首次启动会把找到的 Codex 复制为应用目录下的 `VisionHyperAgentCodex` / `VisionHyperAgentCodex.exe`，后续子进程使用该独立文件名。
 
 ## app_config.json
 

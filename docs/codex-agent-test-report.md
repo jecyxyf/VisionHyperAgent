@@ -90,6 +90,7 @@
 
 ## 交付
 
+- `bin/VisionHyperAgent-linux-x64.zip`
 - `bin/VisionHyperAgent-windows-x64.zip`
 - 使用说明：`docs/codex-agent-usage.md`
 - 无密钥配置示例：`docs/app-config.example.json`
