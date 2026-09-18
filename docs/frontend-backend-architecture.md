@@ -63,8 +63,8 @@ source/frontend/
 └── tests/                                      # Vitest / Playwright
 
 source/backend/
-├── common/                                    # 全局日志单例
-├── core/                                      # 预留的通用配置 / 事件总线
+├── common/                                    # 全局日志单例、通用 JSON 配置文件读写
+├── core/                                      # 事件总线与共享领域事件
 ├── server/
 │   ├── src/main.rs                            # 可执行入口、启动顺序、托盘/headless 分支
 │   ├── src/http_server.rs                     # HTTP 服务、静态资源、关闭编排
@@ -73,8 +73,6 @@ source/backend/
 │   ├── src/agent_events.rs                    # Codex 事件归并和状态修复
 │   ├── src/agent_runtime.rs                   # Codex 进程监督者
 │   ├── src/attachments.rs                     # 附件存储
-│   ├── src/codex_config.rs                    # 私有配置与独立 CODEX_HOME
-│   ├── src/executable.rs                      # Codex 原生可执行文件发现
 │   ├── src/model_gateway/                     # 可选模型协议兼容层
 │   ├── src/tray.rs / browser.rs / shutdown.rs # 托盘、浏览器、关闭信号
 │   └── tests/                                 # Rust 集成测试
@@ -82,7 +80,8 @@ source/backend/
     ├── src/client.rs                          # CodexAgent
     ├── src/websocket.rs                       # WebSocket actor / JSON-RPC 关联
     ├── src/process.rs / process/windows.rs    # CodexProcess 与平台进程控制
-    ├── src/config.rs / types.rs / error.rs     # 配置、协议类型、错误
+    ├── src/config.rs / executable.rs          # app_config 解析与 Codex 可执行文件
+    ├── src/types.rs / error.rs                # 协议类型、错误
     └── tests/                                 # 协议和进程测试
 ~~~
 
@@ -192,6 +191,7 @@ type Props = {
 - 命令执行、文件修改等审批：提交 accept / decline / cancel。
 - item/tool/requestUserInput：按问题 ID 收集答案并提交。
 - 如果底层请求不支持 decline，“拒绝”退化为 cancel，并明确提示会结束本轮。
+- Codex 提出执行策略修正时，展示“本次允许并应用提议权限”；只原样提交 Codex 给出的 `acceptWithExecpolicyAmendment`，不能由前端改写修正内容。
 
 ### 3.4 消息转换模块 messages.ts
 
@@ -222,13 +222,7 @@ AgentSnapshot
 ThreadPage
 ~~~
 
-Effort 固定为：
-
-~~~text
-low / medium / high / xhigh / max / ultra
-~~~
-
-如果模型返回能力列表，则禁用未支持选项；能力未知时不做静默替换。
+`AgentModel.inputModalities` 决定是否允许拖入图片。Effort 选项完全来自当前模型的 `supportedReasoningEfforts`；切换模型后自动使用该模型 `defaultReasoningEffort`，不做静默映射。
 
 ## 4. 浏览器与后端接口
 
@@ -312,7 +306,7 @@ TurnStartParams：
 {
   "threadId": "thread-id",
   "text": "用户输入，最大 64 KiB",
-  "model": "后端已启用模型",
+  "modelId": "前端显示且全局唯一的模型 ID",
   "effort": "low|medium|high|xhigh|max|ultra",
   "attachments": ["attachment-id"],
   "clientMessageId": "前端生成的乐观消息 ID"
@@ -372,329 +366,86 @@ TurnStartParams：
 
 ### 5.1 main.rs
 
-职责：应用入口，确定启动顺序。
-
 启动序列：
 
 1. 初始化全局日志。
-2. 读取 AppConfig::local()。
-3. 从可执行文件目录读取私有 Codex 配置。
-4. 启动本地 HTTP 服务；配置错误不会直接退出 GUI，状态仍可展示。
-5. GUI 模式进入托盘；--headless 模式等待信号，便于自动化测试。
+2. 以可执行文件目录为应用目录，调用 `vha_codex_agent::config::load()` 读取或恢复 `app_config.json`。
+3. 固定监听 `127.0.0.1:8420`；配置错误不会退出，会转换为可观察状态。
+4. GUI 模式创建托盘并打开浏览器；`--headless` 模式等待信号，用于自动化测试。
 
-### 5.2 AppConfig
+### 5.2 common/config.rs
 
 ~~~rust
-pub struct AppConfig {
-    pub listen_addr: SocketAddr,
-}
-
-impl AppConfig {
-    pub fn local() -> Self;
-    pub fn base_url(&self) -> String;
-    pub const PORT: u16; // 8420
-}
+pub struct LoadedConfig<T> { pub value: T; pub created: bool; pub recovered_from: Option<PathBuf>; }
+pub fn load_or_create<T>(path: &Path) -> Result<LoadedConfig<T>, ConfigError>;
+pub fn save<T>(path: &Path, value: &T) -> Result<(), ConfigError>;
 ~~~
+
+职责：创建缺失默认 JSON、备份损坏 JSON、pretty 序列化、临时文件原子替换、Unix `0600` 权限。它不理解 Agent 字段。
 
 ### 5.3 http_server.rs
 
 | 接口 | 说明 |
 | --- | --- |
-| start(addr) -> Result<ServerHandle> | 无模型配置时启动可观察的本地服务 |
-| start_with_codex(addr, settings) -> Result<ServerHandle> | 启动 HTTP，并在后台准备 Agent 运行时 |
-| ServerHandle::address() | 返回实际绑定地址 |
-| ServerHandle::stop() | 请求关闭并等待服务线程结束 |
-| Drop for ServerHandle | 兜底触发关闭 |
+| `local_addr() -> SocketAddr` | 返回固定 `127.0.0.1:8420` |
+| `start(addr)` | 无模型运行时的可观察服务 |
+| `start_with_codex(addr, app_dir, loaded)` | 启动 HTTP 并准备 AgentRuntime |
+| `ServerHandle::address()` / `stop()` | 返回实际地址 / 优雅停止并等待 |
 
-路由组合：
-
-- /api/health
-- /api/agent/*
-- /ws
-- 可选 /internal/model/v1/responses
-- frontend/dist 静态资源与 SPA fallback
-
-关闭顺序：
-
-~~~text
-收到退出信号
-→ 停止接收新请求
-→ AgentService 标记 closing
-→ AgentRuntime 中断活动回合、断开 Codex、停止子进程
-→ 关闭 HTTP / WebSocket
-→ 等待或超时中止 supervisor
-~~~
+路由包含 `/api/health`、`/api/agent/*`、`/ws`、内部模型网关和打包前端静态资源。
 
 ### 5.4 AgentRuntime
 
 ~~~rust
-pub struct AgentRuntime {
-    pub service: Arc<AgentService>,
-    process_config: Option<ProcessConfig>,
-}
+pub struct AgentRuntime { pub service: Arc<AgentService> }
 
 impl AgentRuntime {
-    pub async fn prepare(settings: Result<CodexSettings, String>, addr: SocketAddr) -> Self;
+    pub async fn prepare(
+        loaded: Result<LoadedAgentConfig, String>,
+        app_dir: &Path,
+        addr: SocketAddr,
+    ) -> Self;
     pub async fn run(self, shutdown: ShutdownSignal);
 }
 ~~~
 
-职责：
-
-- 读取并准备私有配置、独立 CODEX_HOME、工作区和附件目录。
-- 创建 CodexAgent 与 AgentService。
-- 预检 Codex 端口，避免误连已有进程。
-- 启动 CodexProcess，等待 WebSocket 初始化握手，20 秒启动超时。
-- 监控子进程退出，释放进程 guard，更新错误状态。
-- 退出时中断活动任务、断开客户端、优雅停止子进程并清理未引用附件。
-
-AgentRuntime 是应用层唯一允许拥有 Codex 子进程的模块。
+职责：调用 `prepare()`、创建 `CodexAgent` 和 `AgentService`、预检 Codex 端口、启动并监督 Codex 子进程、退出时中断任务并回收进程。它是应用层唯一拥有 Codex 生命周期的模块。
 
 ### 5.5 AgentService
 
 ~~~rust
 pub struct AgentService {
     pub client: CodexAgent,
-    pub settings: Option<Arc<CodexSettings>>,
+    pub agent: Option<Arc<PreparedAgent>>,
     pub uploads: Option<Arc<AttachmentStore>>,
-    // 内部状态与事件通道
-}
-
-impl AgentService {
-    pub fn new(...) -> Arc<Self>;
-    pub fn subscribe(&self) -> broadcast::Receiver<Value>;
-    pub fn sanitize(&self, value: Value) -> Value;
-    pub fn emit(&self, value: Value);
-    pub async fn process_status(...);
-    pub async fn snapshot(&self) -> Value;
-    pub async fn call(&self, method: &str, params: Value) -> ServiceResult<Value>;
-    pub async fn begin_shutdown(&self);
-    pub async fn interrupt_all(&self);
 }
 ~~~
 
-call(method, params) 是浏览器方法白名单的唯一入口，负责：
+主要接口：`new()`、`subscribe()`、`sanitize()`、`emit()`、`process_status()`、`snapshot()`、`call()`、`begin_shutdown()`、`interrupt_all()`。
 
-- ready 检查与关闭检查；
-- 参数长度、ID、Effort、附件数量和模型合法性校验；
-- 活动回合、归档、取消状态互斥；
-- 附件 ID 到 UserInput 的转换；
-- 超时或断线时保留 uncertain 状态，不自动重放；
-- 响应脱敏。
+`call()` 是浏览器白名单入口，负责 ready / closing 检查、参数校验、`modelId` O(1) 查找、Effort 与图片能力校验、活动回合互斥、附件转换、超时不确定状态和响应脱敏。
 
-### 5.6 agent_events.rs
+### 5.6 agent_events.rs / agent_api.rs / AttachmentStore
 
-该文件是 AgentService 的实现扩展，主要接口为 crate 内部：
+`agent_events.rs` 消费 Codex 状态、通知、审批和服务端请求，维护活动回合与后台命令关联。
 
-| 接口 | 说明 |
+`agent_api.rs` 注册 WebSocket 和附件 API，执行同源校验、消息大小、并发、心跳和关闭处理。
+
+`AttachmentStore` 将文件保存到 workspace 的 `.vha-attachments`，使用 UUID、安全扩展名、`.part` 原子替换，限制单文件 16 MiB、单消息 16 个，退出时只清理未引用文件。
+
+### 5.7 model_gateway
+
+| 模块 | 职责 |
 | --- | --- |
-| pump(receiver) | 消费 CodexAgent 事件并更新服务状态 |
-| observe_thread(thread) | 从历史线程恢复活动回合和后台命令 item 关联 |
-| refresh_models() | 读取模型信息，并按后端配置修正图片能力 |
+| `mod.rs` | 鉴权、Origin 拒绝、按请求 `modelId` 选择 ResolvedModel、替换上游 `modelName`、转发 |
+| `request.rs` | Responses 请求转 Chat Completions 请求 |
+| `protocol.rs` | Chat SSE 转 Responses SSE、Responses 透传流 redaction |
 
-处理内容：
+内部端点为 `POST /internal/model/v1/responses`。`responses` Provider 流式透传；`chat_completions` Provider 做协议转换。上游错误不回显 body，Provider 密钥不出现在响应中。
 
-- 连接状态变化：标记不确定、要求重同步。
-- 服务端请求：保存 interactions，等待前端回复。
-- turn started/completed：维护活动回合。
-- command item：记录 thread、turn、item 关联，用于停止时清理本轮后台命令。
-- broadcast 消费落后：发送 resync_required。
+### 5.8 托盘、浏览器与关闭信号
 
-### 5.7 agent_api.rs
-
-| 接口 | 说明 |
-| --- | --- |
-| routes(service, shutdown, addr) -> Router | 注册 /ws 与附件 HTTP API |
-
-内部能力：
-
-- 同源 Origin 校验；
-- WebSocket 连接和并发调用限流；
-- JSON 请求反序列化与未知字段拒绝；
-- 心跳、Ping、Pong 和超时处理；
-- 后端业务调用与浏览器连接解耦；
-- 关闭时推送 closing 并结束长连接；
-- 待处理响应过多时主动关闭连接，防止无界排队。
-
-### 5.8 AttachmentStore
-
-~~~rust
-pub const MAX_ATTACHMENT_BYTES: usize;       // 16 MiB
-pub const MAX_ATTACHMENTS_PER_TURN: usize;   // 16
-
-impl AttachmentStore {
-    pub async fn new(workspace: &Path) -> Result<Self, String>;
-    pub async fn store(&self, name: &str, bytes: &[u8]) -> Result<Attachment, String>;
-    pub async fn inputs(&self, ids: &[String], allow_images: bool)
-        -> Result<Vec<UserInput>, String>;
-    pub async fn remove(&self, id: &str) -> Result<(), String>;
-    pub fn begin_shutdown(&self);
-    pub async fn cleanup_unused(&self) -> Result<(), String>;
-}
-~~~
-
-存储位置：
-
-~~~text
-<配置的 Agent workspace>/.vha-attachments/<uuid>.<安全扩展名>
-~~~
-
-规则：
-
-- 浏览器只拿到 UUID，不能提供任意服务器路径。
-- 文件名去路径和控制符并截断；扩展名只允许有限 ASCII 字母数字。
-- 先写 .part 再原子 rename。
-- 单次运行最多登记 1024 个附件。
-- 图片通过魔数识别，仅在配置明确启用图片能力时允许发送。
-- 已被回合引用的附件不能删除；退出时只清理未引用文件。
-
-### 5.9 CodexSettings
-
-公开接口：
-
-~~~rust
-impl CodexSettings {
-    pub fn from_toml(app_dir: &Path, text: &str) -> Result<Self, String>;
-    pub fn load(app_dir: &Path) -> Result<Self, String>;
-    pub fn websocket_url(&self) -> String;
-    pub fn prepare(&mut self) -> Result<ProcessConfig, String>;
-    pub fn redact(&self, value: &mut Value);
-}
-~~~
-
-配置来源：
-
-1. 环境变量：VHA_CODEX_PATH、VHA_CODEX_BASE_URL、VHA_CODEX_MODEL、VHA_CODEX_API_KEY、VHA_CODEX_WORKSPACE、VHA_CODEX_PORT、VHA_CODEX_WIRE_API。
-2. 可执行文件旁的 config.local.toml（Git 忽略，权限受限）。
-
-职责：
-
-- 校验模型服务 URL、端口、模型名和凭据存在性。
-- 生成每次启动随机 Codex WebSocket capability token 与模型兼容层 token。
-- 创建独立 data/codex 作为 CODEX_HOME，不修改用户 ~/.codex。
-- 写入隔离的 Codex config.toml。
-- 构造 Codex 启动参数和环境。
-- 对异常外发的 JSON 做密钥替换。
-
-wire_api 支持两种：
-
-- responses：Codex 直接调用配置服务的 Responses API。
-- chat_completions：后端启动进程内兼容层，将 Codex Responses 请求转换为服务端 Chat Completions。
-
-### 5.10 executable.rs
-
-~~~rust
-pub fn resolve_codex(configured: Option<&Path>, app_dir: &Path)
-    -> Result<PathBuf, String>;
-~~~
-
-解析顺序：
-
-1. 配置的 codex_path。
-2. 应用目录 codex 或 codex.exe。
-3. 应用目录 depends/codex。
-4. 系统 PATH。
-
-该模块识别原生二进制（ELF、Mach-O、MZ），并支持从 npm 包装器附近解析平台专属 vendor 二进制；不会把 Node wrapper 当成进程所有者。
-
-### 5.11 model_gateway
-
-| 模块 | 接口 | 说明 |
-| --- | --- | --- |
-| mod.rs | routes(settings) -> Result<Router, String> | 仅 Chat 模式注册内部路由 |
-| request.rs | convert_request(input) -> Result<ChatRequest, String> | Responses 请求转换为 Chat Completions 请求 |
-| protocol.rs | ChatStream::new / with_tool_names / begin / push / finish / fail | 流式事件转换 |
-| protocol.rs | SseDecoder::push(bytes) | 字节流转为 SSE event |
-
-内部端点：
-
-~~~text
-POST /internal/model/v1/responses
-Authorization: Bearer <每次启动随机 token>
-~~~
-
-该端点不是浏览器 API：
-
-- 拒绝任何带 Origin 的请求。
-- 使用随机 gateway token，不把真实模型密钥暴露给 Codex 配置或前端。
-- 只接受后端配置的模型名。
-- 将 Chat 流转换为 Responses SSE。
-- 必须同时看到终止 finish reason 和 DONE 标记才认为完成；截断流不会伪造成功。
-- 保留本地 Codex 工具调用、审批和沙箱；禁用服务端托管 web search，因为 Chat 协议无法承载该工具。
-
-### 5.12 托盘、浏览器与关闭信号
-
-| 模块 | 接口 | 说明 |
-| --- | --- | --- |
-| tray.rs | run(url, server) -> Result<(), String> | 创建托盘、菜单和事件循环 |
-| browser.rs | open(url) -> Result<(), String> | 打开系统浏览器 |
-| shutdown.rs | ShutdownController::new() / request_shutdown() | 广播关闭请求 |
-| shutdown.rs | ShutdownSignal::from_controller() / wait() | 异步等待关闭 |
-
-托盘菜单：
-
-- 打开界面
-- 退出
-
-选择退出会调用 ServerHandle::stop()，随后由 HTTP 服务和 AgentRuntime 完成 Codex 回收。
-
-### 5.13 公共日志 common
-
-| 接口 | 说明 |
-| --- | --- |
-| LoggingConfig::new(app_name, directory) | 指定应用与日志目录 |
-| LoggingConfig::with_level(level) | 指定级别 |
-| LoggingConfig::with_environment_level() | 读取 VHA_LOG_LEVEL |
-| initialize(config) -> Result<PathBuf, LoggingInitError> | 初始化全局单例 |
-| config_for_executable(app_name) | 使用可执行文件目录下的 logs |
-
-日志文件：
-
-~~~text
-<应用目录>/logs/VisionHyperAgent.YYYY-MM-DD.log
-~~~
-
-格式：
-
-~~~text
-YYYY-MM-DD HH:mm:ss.SSS [级别] [模块:行号] 内容
-~~~
-
-DEBUG、WARNING、ERROR 包含位置；INFO 默认不包含。日志不记录密钥、用户正文、附件内容和模型完整流式响应。
-
-### 5.14 core 预留模块
-
-当前 Agent 链路没有把 core 作为运行时依赖，它保留给后续训练、标注、推理等业务使用。
-
-Config：
-
-~~~rust
-pub struct Config {
-    pub listen_addr: String,
-    pub codex_websocket_url: String,
-    pub data_dir: String,
-}
-
-impl Default for Config { ... }
-~~~
-
-EventBus：
-
-~~~rust
-pub struct Event {
-    pub topic: String,
-    pub payload: serde_json::Value,
-}
-
-pub struct EventBus;
-
-impl EventBus {
-    pub fn publish(&self, topic: impl Into<String>, payload: serde_json::Value);
-    pub fn subscribe(&self) -> broadcast::Receiver<Event>;
-}
-~~~
-
-Agent 当前使用 server 内的 broadcast 与 ShutdownSignal，避免把本功能耦合到未来业务事件总线。
+`tray.rs` 提供托盘菜单“打开界面 / 退出”；`browser.rs` 打开系统浏览器；`shutdown.rs` 广播退出信号。浏览器连接断开不触发退出。
 
 ## 6. model/codex_agent 库架构
 
@@ -704,11 +455,11 @@ lib.rs 导出：
 
 ~~~text
 CodexAgent
-AgentConfig
-AgentError
-Result
-CodexProcess
-ProcessConfig
+AppConfig / AgentConfig / ProviderConfig / ModelConfig / CodexConfig
+LoadedAgentConfig / ResolvedAgentConfig / ResolvedModel / PreparedAgent
+ProviderWireApi / TransportConfig
+AgentError / Result
+CodexProcess / ProcessConfig
 types.rs 中的全部协议类型
 ~~~
 
@@ -720,25 +471,34 @@ types.rs 中的全部协议类型
 | websocket.rs | 连接 actor、握手、请求响应关联、通知分发、重连 |
 | process.rs | 跨平台子进程启动、等待、优雅停止、强杀 |
 | process/windows.rs | Windows Job Object 细节 |
-| config.rs | 超时、重连、事件容量等连接配置 |
+| config.rs | app_config.json、多 Provider 模型索引、Codex 启动准备 |
+| executable.rs | 原生 Codex 可执行文件解析 |
 | types.rs | 协议 DTO 与事件 |
 | error.rs | 错误类型 |
 
-### 6.2 AgentConfig
+### 6.2 配置与准备
+
+`AgentConfig::resolve()` 校验配置并生成 `ResolvedAgentConfig`：
 
 ~~~rust
-pub struct AgentConfig {
-    pub websocket_url: String,
-    pub auth_token: Option<String>,
-    pub experimental_api: bool,
-    pub connect_timeout: Duration,
-    pub request_timeout: Duration,
-    pub reconnect_interval: Duration,
-    pub max_reconnect_attempts: u32,
-    pub approval_timeout: Duration,
-    pub event_capacity: usize,
+pub struct ResolvedAgentConfig {
+    pub active_model_id: String,
+    pub active_model: Arc<ResolvedModel>,
+    pub models: Arc<HashMap<String, Arc<ResolvedModel>>>,
+    pub codex: CodexConfig,
+}
+
+impl ResolvedAgentConfig {
+    pub fn model(&self, model_id: &str) -> Option<Arc<ResolvedModel>>;
+    pub fn browser_models(&self) -> Vec<Model>;
 }
 ~~~
+
+`ResolvedModel` 合并 Provider URL、密钥、wire API、上游模型名、支持 Effort 和图片能力，建立 O(1) 索引。
+
+`prepare(config, app_dir, address)` 创建 workspace 和独立 `CODEX_HOME`，生成随机 WebSocket / Gateway token，写入不含 Provider 密钥的 Codex `config.toml`，并返回 `ProcessConfig`。`PreparedAgent::redact()` 负责响应脱敏。
+
+`TransportConfig` 只描述 WebSocket 客户端连接参数，由 `PreparedAgent::transport_config()` 从 Codex 配置生成。
 
 ### 6.3 CodexAgent
 
@@ -759,8 +519,8 @@ pub struct AgentConfig {
 | start_turn(input) | turn/start | 发送回合 |
 | interrupt_turn(threadId, turnId) | turn/interrupt | 中断回合 |
 | list_skills(cwd) | skills/list | 技能列表 |
-| respond(request, result) | 原服务端请求 ID | 回复用户输入等请求 |
-| approve(request, decision) | 原服务端请求 ID | 回复审批 |
+| respond(request, result) | 原服务端请求 ID | 回复用户输入；服务层也会用它原样转发已校验的复杂审批决定 |
+| approve(request, decision) | 原服务端请求 ID | 回复字符串审批 |
 | experimental_api_enabled() | 无 | 是否启用实验 API |
 | list_background_terminals(threadId, cursor) | thread/backgroundTerminals/list | 列出后台命令 |
 | terminate_background_terminal(threadId, processId) | thread/backgroundTerminals/terminate | 结束指定后台命令 |
@@ -826,7 +586,7 @@ impl CodexProcess {
 → POST /api/agent/attachments
 → AttachmentStore 返回 UUID
 → 前端插入 pending 用户消息
-→ WS turn.start(text, model, effort, attachmentIds, clientMessageId)
+→ WS turn.start(text, modelId, effort, attachmentIds, clientMessageId)
 → AgentService 校验并 reserve 活动回合
 → AttachmentStore.inputs() 转成 UserInput
 → CodexAgent turn/start

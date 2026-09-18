@@ -590,7 +590,7 @@ async fn rpc_errors_are_typed_but_display_does_not_leak_upstream_message() {
 
 #[tokio::test]
 async fn zero_timeout_is_rejected_and_idle_calls_fail_immediately() {
-    let agent = CodexAgent::new(AgentConfig {
+    let agent = CodexAgent::new(TransportConfig {
         request_timeout: Duration::ZERO,
         ..Default::default()
     });

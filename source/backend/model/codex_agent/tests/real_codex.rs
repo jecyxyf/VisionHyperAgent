@@ -1,7 +1,7 @@
 //! Explicitly-run native protocol smoke test. No remote API or real credentials are used.
 use std::path::PathBuf;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
-use vha_codex_agent::{AgentConfig, CodexAgent, CodexProcess, ConnectionPhase, ProcessConfig};
+use vha_codex_agent::{CodexAgent, CodexProcess, ConnectionPhase, ProcessConfig, TransportConfig};
 
 struct TempHome(PathBuf);
 impl Drop for TempHome {
@@ -63,7 +63,7 @@ supports_websockets = false
     .await
     .unwrap();
     let pid = child.pid().unwrap();
-    let agent = CodexAgent::new(AgentConfig {
+    let agent = CodexAgent::new(TransportConfig {
         websocket_url: endpoint,
         connect_timeout: Duration::from_secs(2),
         reconnect_interval: Duration::from_millis(100),

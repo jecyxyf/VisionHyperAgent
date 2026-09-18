@@ -11,8 +11,8 @@ use tokio::time::{timeout, Instant};
 
 use crate::websocket::{Actor, Command, Request};
 use crate::{
-    AgentConfig, AgentError, AgentEvent, AgentState, ApprovalDecision, ConnectionPhase, Model,
-    Page, Result, ServerRequest, Thread, ThreadOptions, Turn, TurnInput,
+    AgentError, AgentEvent, AgentState, ApprovalDecision, ConnectionPhase, Model, Page, Result,
+    ServerRequest, Thread, ThreadOptions, TransportConfig, Turn, TurnInput,
 };
 
 struct Running {
@@ -22,7 +22,7 @@ struct Running {
 }
 
 struct Inner {
-    config: AgentConfig,
+    config: TransportConfig,
     state: watch::Sender<AgentState>,
     events: broadcast::Sender<AgentEvent>,
     running: Mutex<Option<Running>>,
@@ -45,7 +45,7 @@ pub struct CodexAgent {
 }
 
 impl CodexAgent {
-    pub fn new(config: AgentConfig) -> Self {
+    pub fn new(config: TransportConfig) -> Self {
         let (state, _) = watch::channel(AgentState::default());
         let (events, _) = broadcast::channel(config.event_capacity.max(1));
         Self {

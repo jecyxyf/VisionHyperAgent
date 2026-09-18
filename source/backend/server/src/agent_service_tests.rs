@@ -3,7 +3,10 @@ use super::*;
 use futures_util::{SinkExt, StreamExt};
 use tokio::sync::mpsc;
 use tokio::task::JoinHandle;
-use vha_codex_agent::AgentConfig;
+use vha_codex_agent::{
+    prepare, AgentConfig, CodexConfig, ModelConfig, ProviderConfig, ProviderWireApi,
+    TransportConfig,
+};
 
 pub(crate) struct Fixture {
     pub service: Arc<AgentService>,
@@ -27,11 +30,12 @@ impl Fixture {
     async fn with_capabilities(experimental: bool) -> Self {
         let root = std::env::temp_dir().join(format!("vha-service-{}", Uuid::new_v4()));
         std::fs::create_dir(&root).unwrap();
-        let config=toml::to_string(&json!({"codex_path":std::env::current_exe().unwrap(),"base_url":"http://127.0.0.1:1/v1","model":"fixture-model","api_key":"FIXTURE_PRIVATE_TOKEN"})).unwrap();
-        let mut settings = CodexSettings::from_toml(&root, &config).unwrap();
-        let _ = settings.prepare().unwrap();
-        let uploads = Arc::new(AttachmentStore::new(&settings.workspace).await.unwrap());
-        let cwd = settings.workspace.to_string_lossy().into_owned();
+        let app = fixture_app();
+        let resolved = Arc::new(app.resolve().unwrap());
+        let prepared =
+            Arc::new(prepare(resolved, &root, "127.0.0.1:8420".parse().unwrap()).unwrap());
+        let uploads = Arc::new(AttachmentStore::new(&prepared.workspace).await.unwrap());
+        let cwd = prepared.workspace.to_string_lossy().into_owned();
         let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
         let address = listener.local_addr().unwrap();
         let (sender, mut commands) = mpsc::channel::<Value>(64);
@@ -58,7 +62,7 @@ impl Fixture {
                 }
             }
         });
-        let client = CodexAgent::new(AgentConfig {
+        let client = CodexAgent::new(TransportConfig {
             websocket_url: format!("ws://{address}"),
             request_timeout: Duration::from_secs(2),
             max_reconnect_attempts: 0,
@@ -66,7 +70,7 @@ impl Fixture {
             ..Default::default()
         });
         let events = client.subscribe_events();
-        let service = AgentService::new(client, Some(Arc::new(settings)), Some(uploads), None);
+        let service = AgentService::new(client, Some(prepared), Some(uploads), None);
         let pump = tokio::spawn(service.clone().pump(events));
         service.client.connect().await.unwrap();
         service.process_status("running", None, None).await;
@@ -99,15 +103,38 @@ impl Fixture {
         self.sender.send(value).await.unwrap();
     }
 }
+fn fixture_app() -> AgentConfig {
+    AgentConfig {
+        active_model_id: "fixture-model".into(),
+        providers: vec![ProviderConfig {
+            id: "fixture-provider".into(),
+            base_url: "http://127.0.0.1:1/v1".into(),
+            api_key: "FIXTURE_PRIVATE_TOKEN".into(),
+            wire_api: ProviderWireApi::ChatCompletions,
+            models: vec![ModelConfig {
+                model_id: "fixture-model".into(),
+                model_name: "upstream-fixture-model".into(),
+                effort: "low".into(),
+                supports_images: false,
+                ..Default::default()
+            }],
+        }],
+        codex: CodexConfig {
+            executable: Some(std::env::current_exe().unwrap()),
+            ..Default::default()
+        },
+    }
+}
+
 fn send_params() -> Value {
-    json!({"threadId":"thread-1","text":"hello","model":"fixture-model","effort":"low","attachments":[],"clientMessageId":"ui-message-1"})
+    json!({"threadId":"thread-1","text":"hello","modelId":"fixture-model","effort":"low","attachments":[],"clientMessageId":"ui-message-1"})
 }
 
 #[tokio::test]
 async fn invalid_parameters_do_not_reserve_a_turn_or_send_rpc() {
     let mut fixture = Fixture::new().await;
     for (field, bad) in [
-        ("model", json!("other-model")),
+        ("modelId", json!("other-model")),
         ("effort", json!("invalid")),
         ("clientMessageId", json!("../../bad")),
         ("text", json!("")),
@@ -127,6 +154,7 @@ async fn concurrent_start_is_rejected_and_client_message_id_is_forwarded() {
     let first = tokio::spawn(async move { service.call("turn.start", send_params()).await });
     let request = fixture.next().await;
     assert_eq!(request["method"], "turn/start");
+    assert_eq!(request["params"]["model"], "fixture-model");
     assert_eq!(request["params"]["clientUserMessageId"], "ui-message-1");
     assert_eq!(
         fixture
@@ -360,6 +388,59 @@ async fn approval_is_bound_to_original_request_and_cannot_expand_allowed_decisio
     assert_eq!(
         response,
         json!({"id":"approval-1","result":{"decision":"decline"}})
+    );
+    pending.await.unwrap().unwrap();
+}
+
+#[tokio::test]
+async fn proposed_execpolicy_amendment_is_forwarded_exactly() {
+    let mut fixture = Fixture::new().await;
+    let amendment = json!({"/bin/bash":["-lc","echo safe"]});
+    let decision = json!({"acceptWithExecpolicyAmendment":{"execpolicy_amendment":amendment}});
+    fixture
+        .emit(json!({
+            "id":"approval-1",
+            "method":"item/commandExecution/requestApproval",
+            "params":{
+                "threadId":"thread-1",
+                "turnId":"turn-1",
+                "command":"echo safe",
+                "availableDecisions":["accept",decision,"cancel"]
+            }
+        }))
+        .await;
+    let key = tokio::time::timeout(Duration::from_secs(2), async {
+        loop {
+            let snapshot = fixture.service.snapshot().await;
+            if let Some(key) = snapshot["interactions"][0]["key"].as_str() {
+                return key.to_owned();
+            }
+            tokio::time::sleep(Duration::from_millis(5)).await;
+        }
+    })
+    .await
+    .unwrap();
+    let forged = json!({"acceptWithExecpolicyAmendment":{"execpolicy_amendment":{"/bin/sh":["-lc","echo unsafe"]}}});
+    assert_eq!(
+        fixture
+            .service
+            .call("interaction.reply", json!({"key":key,"decision":forged}))
+            .await
+            .unwrap_err()
+            .code,
+        "bad_request"
+    );
+    assert!(fixture.requests.try_recv().is_err());
+    let service = fixture.service.clone();
+    let requested = decision.clone();
+    let pending = tokio::spawn(async move {
+        service
+            .call("interaction.reply", json!({"key":key,"decision":requested}))
+            .await
+    });
+    assert_eq!(
+        fixture.next().await,
+        json!({"id":"approval-1","result":{"decision":decision}})
     );
     pending.await.unwrap().unwrap();
 }

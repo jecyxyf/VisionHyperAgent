@@ -79,7 +79,7 @@ async fn uploads_store_bytes_with_opaque_ids_and_can_be_removed_before_use() {
     assert!(uuid::Uuid::parse_str(id).is_ok());
     let path = fixture
         .service
-        .settings
+        .agent
         .as_ref()
         .unwrap()
         .workspace
@@ -123,7 +123,7 @@ async fn invalid_empty_and_cross_origin_uploads_do_not_create_files() {
     );
     let directory = fixture
         .service
-        .settings
+        .agent
         .as_ref()
         .unwrap()
         .workspace

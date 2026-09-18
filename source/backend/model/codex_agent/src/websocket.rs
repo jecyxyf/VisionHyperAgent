@@ -18,7 +18,8 @@ use tokio_tungstenite::{
 };
 
 use crate::{
-    AgentConfig, AgentError, AgentEvent, AgentState, ConnectionPhase, Result, RpcId, ServerRequest,
+    AgentError, AgentEvent, AgentState, ConnectionPhase, Result, RpcId, ServerRequest,
+    TransportConfig,
 };
 
 type Socket = WebSocketStream<MaybeTlsStream<TcpStream>>;
@@ -53,7 +54,7 @@ impl Command {
 }
 
 pub(crate) struct Actor {
-    pub config: AgentConfig,
+    pub config: TransportConfig,
     pub commands: mpsc::Receiver<Command>,
     pub stop: watch::Receiver<bool>,
     pub state: watch::Sender<AgentState>,

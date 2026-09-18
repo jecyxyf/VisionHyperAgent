@@ -16,6 +16,8 @@ bin/
 
 # Machine-local provider credentials (never commit).
 config.local.toml
+app_config.json
+app_config.json.invalid-*
 
 # IDE
 .idea/

@@ -2,7 +2,7 @@ import { test, expect } from '@playwright/test';
 import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { homedir } from 'node:os';
 import { join } from 'node:path';
-import { spawnSync } from 'node:child_process';
+import { parseShellGroups } from './command-approval';
 
 // Actual Codex approval, not an automatic allow-all handler. The only permitted command
 // writes one synthetic marker into a fresh test-owned directory outside the workspace.
@@ -30,14 +30,9 @@ for (const decision of ['accept', 'decline'] as const) {
         const interaction = snapshot.interactions.find((item: { request: { params: { threadId?: string } } }) => item.request.params.threadId === threadId);
         await test.info().attach(`approval-${step}`, { body: JSON.stringify(interaction, null, 2), contentType: 'application/json' });
         expect(interaction?.request.method).toBe('item/commandExecution/requestApproval');
-        const parser = 'import json,shlex,sys\ns=sys.stdin.read()\na=shlex.split(s)\nif len(a)==3 and a[0].split("/")[-1] in ("sh","bash") and a[1] in ("-c","-lc"): s=a[2]\np=shlex.shlex(s,posix=True,punctuation_chars=True);p.whitespace_split=True\nprint(json.dumps(list(p)))';
-        const parsed = spawnSync('python3', ['-c', parser], { input: interaction.request.params.command, encoding: 'utf8' });
-        expect(parsed.status).toBe(0);
-        const words: string[] = JSON.parse(parsed.stdout);
-        const groups: string[][] = [[]];
-        for (const word of words) { if (word === ';' || word === '&&') groups.push([]); else groups.at(-1)!.push(word); }
-        const commands = groups.filter((group) => group.length);
-        const readOnly = [['cat', target], ['wc', '-c', target], ['echo'], ['echo', '---END---'], ['printf', '\\n']];
+        const displayed = interaction.request.params.commandActions?.at(0)?.command ?? interaction.request.params.command ?? '';
+        const commands = parseShellGroups(displayed);
+        const readOnly = [['cat', target], ['wc', '-c', target], ['echo'], ['echo', '---'], ['echo', '---END---'], ['printf', '\\n']];
         const isRead = (group: string[]) => readOnly.some(expected => JSON.stringify(group) === JSON.stringify(expected));
         const isWrite = (group: string[]) => JSON.stringify(group) === JSON.stringify(['printf', '%s', marker, '>', target]);
         expect(commands.every(group => isRead(group) || isWrite(group))).toBe(true);

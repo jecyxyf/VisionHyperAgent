@@ -1,14 +1,14 @@
 //! The only application layer allowed to own the Codex child process.
 use std::net::{Ipv4Addr, SocketAddr};
+use std::path::Path;
 use std::sync::Arc;
 use std::time::Duration;
 
-use vha_codex_agent::{AgentConfig, CodexAgent, CodexProcess, ProcessConfig};
-
-use crate::{
-    agent_service::AgentService, attachments::AttachmentStore, codex_config::CodexSettings,
-    shutdown::ShutdownSignal,
+use vha_codex_agent::{
+    prepare as prepare_agent, CodexAgent, CodexProcess, LoadedAgentConfig, ProcessConfig,
 };
+
+use crate::{agent_service::AgentService, attachments::AttachmentStore, shutdown::ShutdownSignal};
 
 pub struct AgentRuntime {
     pub service: Arc<AgentService>,
@@ -16,31 +16,32 @@ pub struct AgentRuntime {
 }
 
 impl AgentRuntime {
-    pub async fn prepare(settings: Result<CodexSettings, String>, addr: SocketAddr) -> Self {
+    pub async fn prepare(
+        loaded: Result<LoadedAgentConfig, String>,
+        app_dir: &Path,
+        addr: SocketAddr,
+    ) -> Self {
         let prepared = async {
-            let mut settings = settings?;
-            settings.configure_gateway(addr);
-            let process = settings.prepare()?;
-            let uploads = AttachmentStore::new(&settings.workspace).await?;
-            Ok::<_, String>((Arc::new(settings), process, Arc::new(uploads)))
+            let loaded = loaded?;
+            let resolved = Arc::new(loaded.config);
+            let prepared = prepare_agent(resolved, app_dir, addr)?;
+            let process = prepared.process.clone();
+            let agent = Arc::new(prepared);
+            let uploads = AttachmentStore::new(&agent.workspace).await?;
+            Ok::<_, String>((agent, process, uploads))
         }
         .await;
         match prepared {
-            Ok((settings, process, uploads)) => {
-                let client = CodexAgent::new(AgentConfig {
-                    websocket_url: settings.websocket_url(),
-                    auth_token: Some(settings.websocket_token()),
-                    experimental_api: true,
-                    ..Default::default()
-                });
+            Ok((agent, process, uploads)) => {
+                let client = CodexAgent::new(agent.transport_config());
                 Self {
-                    service: AgentService::new(client, Some(settings), Some(uploads), None),
+                    service: AgentService::new(client, Some(agent), Some(Arc::new(uploads)), None),
                     process_config: Some(process),
                 }
             }
             Err(error) => Self {
                 service: AgentService::new(
-                    CodexAgent::new(AgentConfig::default()),
+                    CodexAgent::new(vha_codex_agent::TransportConfig::default()),
                     None,
                     None,
                     Some(error),
@@ -54,14 +55,11 @@ impl AgentRuntime {
         let receiver = self.service.client.subscribe_events();
         let events = tokio::spawn(self.service.clone().pump(receiver));
         let mut process: Option<CodexProcess> = None;
-        let mut model_task = None;
-        if let Some(config) = self.process_config {
-            let port = self
-                .service
-                .settings
-                .as_ref()
-                .expect("prepared settings")
-                .port;
+        if let Some(config) = self.process_config.clone() {
+            let Some(agent) = self.service.agent.as_ref() else {
+                unreachable!("prepared agent implies service configuration");
+            };
+            let port = agent.config.codex.port;
             // Refuse an occupied port before spawning. The per-start capability token also
             // prevents accidentally connecting to a different process in the bind race window.
             let preflight =
@@ -108,7 +106,7 @@ impl AgentRuntime {
                     },
                     result=&mut connection=>break match result {
                         Ok(()) if matches!(child.try_wait(),Ok(None))=>Ok(true),
-                        _=>Err("Codex 连接或协议握手失败，请检查安装版本和配置".into()),
+                        _=>Err("Codex 连接或协议握手失败，请检查安装版本和配置".to_string()),
                     },
                 }
             };
@@ -117,10 +115,6 @@ impl AgentRuntime {
                     self.service
                         .process_status("running", child.pid(), None)
                         .await;
-                    let service = self.service.clone();
-                    model_task = Some(tokio::spawn(async move {
-                        service.refresh_models().await;
-                    }));
                     loop {
                         tokio::select! {
                             _=shutdown.wait()=>break,
@@ -129,7 +123,6 @@ impl AgentRuntime {
                                 result=>{
                                     log::error!("Owned Codex process exited unexpectedly; status_available={}",result.is_ok());
                                     let _=self.service.client.disconnect().await;
-                                    // Closing the guard immediately also closes the Windows Job.
                                     drop(process.take());
                                     self.service.process_status("error",None,Some("Codex 进程已退出，请查看日志并重新启动应用".into())).await;
                                     shutdown.wait().await;break;
@@ -160,10 +153,6 @@ impl AgentRuntime {
             if let Err(error) = child.shutdown(Duration::from_secs(2)).await {
                 log::error!("Codex shutdown failed: {error}");
             }
-        }
-        if let Some(task) = model_task {
-            task.abort();
-            let _ = task.await;
         }
         events.abort();
         let _ = events.await;

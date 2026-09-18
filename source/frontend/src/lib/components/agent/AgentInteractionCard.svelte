@@ -1,6 +1,7 @@
 <script lang="ts">
   import type { AgentInteraction } from "./types";
   type Question = { id: string; question: string; header?: string; options?: { label: string; description?: string }[]; isSecret?: boolean };
+  type ApprovalChoice = string | Record<string, unknown>;
   let { interaction, context = "", onReply }: { interaction: AgentInteraction; context?: string; onReply: (params: object) => Promise<void> } = $props();
   let answers = $state<Record<string, string>>({});
   let busy = $state(false);
@@ -8,7 +9,8 @@
   const inputRequest = $derived(interaction.request.method === "item/tool/requestUserInput");
   const questions = $derived((Array.isArray(interaction.request.params.questions) ? interaction.request.params.questions : []) as Question[]);
   const detail = $derived(context || (typeof interaction.request.params.command === "string" ? interaction.request.params.command : JSON.stringify(interaction.request.params, null, 2)));
-  const allowed = $derived(Array.isArray(interaction.request.params.availableDecisions) ? interaction.request.params.availableDecisions : ["accept", "decline", "cancel"]);
+  const allowed = $derived((Array.isArray(interaction.request.params.availableDecisions) ? interaction.request.params.availableDecisions : ["accept", "decline", "cancel"]) as ApprovalChoice[]);
+  const proposedAmendment = $derived(allowed.find(choice => typeof choice === "object" && choice !== null && "acceptWithExecpolicyAmendment" in choice));
   const denial = $derived(allowed.includes("decline") ? "decline" : allowed.includes("cancel") ? "cancel" : null);
   async function reply(params: object) {
     if (busy) return;
@@ -44,6 +46,9 @@
     <details open><summary>查看操作内容</summary><pre>{detail}</pre></details>
     <div class="actions">
       <button disabled={busy || !allowed.includes("accept")} onclick={() => reply({ decision: "accept" })}>本次允许</button>
+      {#if proposedAmendment}
+        <button disabled={busy} onclick={() => reply({ decision: proposedAmendment })}>本次允许并应用提议权限</button>
+      {/if}
       <button disabled={busy || !denial} onclick={() => reply({ decision: denial })}>拒绝</button>
       {#if denial !== "cancel"}<button disabled={busy || !allowed.includes("cancel")} onclick={() => reply({ decision: "cancel" })}>取消本轮</button>{/if}
     </div>

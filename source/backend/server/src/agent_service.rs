@@ -12,11 +12,11 @@ use serde_json::{json, Value};
 use tokio::sync::{broadcast, Mutex};
 use uuid::Uuid;
 use vha_codex_agent::{
-    AgentError, AgentEvent, ApprovalDecision, ApprovalPolicy, CodexAgent, ConnectionPhase, Model,
-    Page, SandboxMode, ServerRequest, Thread, ThreadOptions, Turn, TurnInput, UserInput,
+    AgentError, AgentEvent, ApprovalPolicy, CodexAgent, ConnectionPhase, Model, PreparedAgent,
+    SandboxMode, ServerRequest, Thread, ThreadOptions, Turn, TurnInput, UserInput,
 };
 
-use crate::{attachments::AttachmentStore, codex_config::CodexSettings};
+use crate::attachments::AttachmentStore;
 
 #[derive(Debug, Clone, Serialize)]
 pub struct ServiceError {
@@ -79,12 +79,12 @@ struct State {
     // Newly created empty threads need not have a persisted rollout yet.
     empty_threads: HashMap<String, Thread>,
     interactions: HashMap<String, ServerRequest>,
-    model: Option<Model>,
+    models: Vec<Model>,
 }
 
 pub struct AgentService {
     pub client: CodexAgent,
-    pub settings: Option<Arc<CodexSettings>>,
+    pub agent: Option<Arc<PreparedAgent>>,
     pub uploads: Option<Arc<AttachmentStore>>,
     state: Mutex<State>,
     events: broadcast::Sender<Value>,
@@ -95,28 +95,15 @@ pub struct AgentService {
 impl AgentService {
     pub fn new(
         client: CodexAgent,
-        settings: Option<Arc<CodexSettings>>,
+        agent: Option<Arc<PreparedAgent>>,
         uploads: Option<Arc<AttachmentStore>>,
         error: Option<String>,
     ) -> Arc<Self> {
-        let model = settings.as_ref().map(|s| Model {
-            id: s.model.clone(),
-            model: s.model.clone(),
-            display_name: s.model.clone(),
-            is_default: true,
-            hidden: false,
-            supported_reasoning_efforts: vec![],
-            default_reasoning_effort: Some("medium".into()),
-            input_modalities: if s.supports_images {
-                vec!["text".into(), "image".into()]
-            } else {
-                vec!["text".into()]
-            },
-        });
+        let models = agent.as_ref().map(|agent| agent.config.browser_models());
         let (events, _) = broadcast::channel(512);
         Arc::new(Self {
             client,
-            settings,
+            agent,
             uploads,
             events,
             closing: AtomicBool::new(false),
@@ -132,7 +119,7 @@ impl AgentService {
                 command_items: HashMap::new(),
                 empty_threads: HashMap::new(),
                 interactions: HashMap::new(),
-                model,
+                models: models.unwrap_or_default(),
             }),
         })
     }
@@ -142,8 +129,8 @@ impl AgentService {
     }
 
     pub fn sanitize(&self, mut value: Value) -> Value {
-        if let Some(settings) = &self.settings {
-            settings.redact(&mut value);
+        if let Some(agent) = &self.agent {
+            agent.redact(&mut value);
         }
         value
     }
@@ -204,7 +191,7 @@ impl AgentService {
             .collect();
         self.sanitize(json!({
             "phase":phase,"message":state.message,"pid":state.pid,"connection":connection,
-            "models":state.model.iter().collect::<Vec<_>>(),"activeTurns":active,"interactions":interactions,
+            "models":state.models,"activeTurns":active,"interactions":interactions,
         }))
     }
 
@@ -213,13 +200,13 @@ impl AgentService {
     }
 
     fn options(&self) -> ServiceResult<ThreadOptions> {
-        let settings = self
-            .settings
+        let agent = self
+            .agent
             .as_ref()
             .ok_or_else(|| ServiceError::new("configuration", "Agent 尚未配置"))?;
         Ok(ThreadOptions {
-            model: Some(settings.model.clone()),
-            cwd: settings.workspace.to_string_lossy().into_owned(),
+            model: Some(agent.config.active_model_id.clone()),
+            cwd: agent.workspace.to_string_lossy().into_owned(),
             approval_policy: ApprovalPolicy::OnRequest,
             sandbox: SandboxMode::WorkspaceWrite,
         })
@@ -250,7 +237,7 @@ impl AgentService {
         self.ensure_ready().await?;
         let result = match method {
             "models.list" => {
-                json!({"data":self.state.lock().await.model.iter().collect::<Vec<_>>() })
+                json!({"data":self.state.lock().await.models.clone()})
             }
             "thread.create" => {
                 let thread = self.client.create_thread(&self.options()?).await?;
@@ -362,7 +349,7 @@ impl AgentService {
             self.client.read_thread(id).await?
         };
         let configured = &self
-            .settings
+            .agent
             .as_ref()
             .ok_or_else(|| ServiceError::new("configuration", "Agent 尚未配置"))?
             .workspace;
@@ -392,21 +379,18 @@ impl AgentService {
         if params.text.trim().is_empty() && params.attachments.is_empty() {
             return Err(ServiceError::new("bad_request", "消息和附件不能同时为空"));
         }
-        if !matches!(
-            params.effort.as_str(),
-            "low" | "medium" | "high" | "xhigh" | "max" | "ultra"
-        ) {
-            return Err(ServiceError::new("bad_request", "无效的 Effort"));
-        }
-        let settings = self
-            .settings
+        let agent = self
+            .agent
             .as_ref()
             .ok_or_else(|| ServiceError::new("configuration", "Agent 尚未配置"))?;
-        if params.model != settings.model {
+        let Some(model) = agent.config.model(&params.model_id) else {
             return Err(ServiceError::new(
                 "bad_request",
                 "当前模型未在后端配置中启用",
             ));
+        };
+        if !model.supported_efforts.contains(&params.effort) {
+            return Err(ServiceError::new("bad_request", "当前模型不支持该 Effort"));
         }
         let ticket = Uuid::new_v4();
         {
@@ -472,7 +456,7 @@ impl AgentService {
             let uploaded = match &self.uploads {
                 Some(store) => {
                     store
-                        .inputs(&params.attachments, settings.supports_images)
+                        .inputs(&params.attachments, model.supports_images)
                         .await
                 }
                 None => Err("附件服务不可用".into()),
@@ -493,7 +477,7 @@ impl AgentService {
                 thread_id: params.thread_id.clone(),
                 client_user_message_id: params.client_message_id.clone(),
                 input,
-                model: Some(params.model),
+                model: Some(params.model_id),
                 effort: Some(params.effort),
             })
             .await;
@@ -687,28 +671,25 @@ impl AgentService {
                 .respond(&request, Ok(json!({"answers":answers})))
                 .await
         } else {
-            let decision = match params.get("decision").and_then(Value::as_str) {
-                Some("accept") => ApprovalDecision::Accept,
-                Some("decline") => ApprovalDecision::Decline,
-                Some("cancel") => ApprovalDecision::Cancel,
-                _ => {
-                    return Err(ServiceError::new(
-                        "bad_request",
-                        "仅支持本次允许、拒绝或取消",
-                    ))
-                }
-            };
+            let decision = params
+                .get("decision")
+                .cloned()
+                .ok_or_else(|| ServiceError::new("bad_request", "缺少审批决定"))?;
+            if !(decision.is_string() || decision.is_object()) {
+                return Err(ServiceError::new("bad_request", "审批决定格式错误"));
+            }
             if let Some(allowed) = request
                 .params
                 .get("availableDecisions")
                 .and_then(Value::as_array)
             {
-                let requested = serde_json::to_value(decision).expect("decision is serializable");
-                if !allowed.contains(&requested) {
+                if !allowed.contains(&decision) {
                     return Err(ServiceError::new("bad_request", "Codex 未允许该审批选项"));
                 }
             }
-            self.client.approve(&request, decision).await
+            self.client
+                .respond(&request, Ok(json!({"decision":decision})))
+                .await
         };
         if result.is_ok()
             || matches!(
@@ -763,7 +744,7 @@ struct SendTurn {
     client_message_id: Option<String>,
     thread_id: String,
     text: String,
-    model: String,
+    model_id: String,
     effort: String,
     #[serde(default)]
     attachments: Vec<String>,

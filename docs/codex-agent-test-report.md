@@ -10,7 +10,7 @@
 
 | 层次 | 结果 | 证据 |
 | --- | --- | --- |
-| Rust 全工作区 | 103 个测试入口通过；其中 1 个为子进程夹具入口 | `bin/test-artifacts/final/workspace-tests.txt` |
+| Rust 全工作区 | 历史基线 103 个测试入口通过；2026-09-18 配置重构与审批修正后为 109 个测试入口通过 | `bin/test-artifacts/final/workspace-tests.txt` / 当次终端输出 |
 | 原生 Codex 协议 | 显式启用的 1 项通过 | `final/native-protocol.txt` |
 | 原生 Codex 宿主生命周期 | 显式启用的 2 项通过 | `final/native-lifecycle.txt` |
 | 前端单元测试 | 18 项通过 | `source/frontend/tests/unit/` |
@@ -61,8 +61,8 @@
 | 凭据 | 受跟踪/未忽略文件和应用日志扫描无测试密钥；本机私有配置被 Git 忽略且权限为 600，不加入 Windows 压缩包 |
 | 附件 | 检查大小、路径与符号链接；只处理本应用登记的 ID；保护历史引用，正常退出清理未引用上传 |
 
-生命周期证据：`actual-host-sigkill.json`、`final/actual-tray-exit.json`、`native-ws-security.json`。
-隐私证据：`final/credential-audit.json`。
+生命周期证据：`final/native-lifecycle.txt`；其中包含正常退出回收与子进程 SIGKILL 后保留 HTTP 的用例。此前 Linux 实机托盘退出亦已验收。
+隐私证据：`final/credential-audit.json`、`final/workspace-tests.txt` 与当前部署包扫描。
 
 **Windows 说明：没有在 Windows 实机执行托盘和 Job Object 测试。**
 本报告中的 Windows 结果是生产路径逻辑测试与交叉编译结果，不能解释为实机行为已经验证。真实 Windows 行为仍应按使用说明进行设备验收。
@@ -73,6 +73,7 @@
 - Codex 工具命名空间和自由格式补丁：转换后恢复原始工具身份与调用 ID，避免命令发往错误工具。
 - 单独 `turn/interrupt` 不会结束所有已转后台的命令：按当前回合的 item ID 精确终止，保留其他回合的后台命令与 Codex 进程。
 - 某些审批只有 accept/cancel：界面明确说明拒绝会结束当前回合，不扩展服务端允许的选项。
+- Linux 沙箱基础组件缺失时，Codex 可能提出 `acceptWithExecpolicyAmendment`：界面增加“本次允许并应用提议权限”；后端只允许提交与 `availableDecisions` 完全一致的原始对象，前端不能伪造或扩大修正内容。
 - 空会话没有 rollout，直接 archive 会失败：未提交草稿解除订阅并从列表移除；真实历史仍走归档。
 - 回合完成先于开始响应、重复发送、初始化竞争：通过连接代次、请求关联、回合占位与客户端消息 ID 处理。
 - 传输库详细日志可能记录正文：屏蔽敏感传输层日志，由应用输出不含正文/密钥的分类诊断。
@@ -83,7 +84,7 @@
 - `bin/VisionHyperAgent.exe`
 - `bin/VisionHyperAgent-windows-x64.zip`
 - 使用说明：`docs/codex-agent-usage.md`
-- 无密钥配置示例：`docs/codex-agent-config.example.toml`
+- 无密钥配置示例：`docs/app-config.example.json`
 
 产物 SHA256 与文件大小见 `bin/test-artifacts/final/artifacts.json`。
 Windows 包不含真实密钥或 Linux 的 Codex 二进制，需要 Windows Codex 原生可执行文件。

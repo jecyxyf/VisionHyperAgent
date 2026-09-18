@@ -15,7 +15,8 @@ use tokio::task::JoinHandle;
 #[path = "process/windows.rs"]
 mod windows;
 
-/// Intentionally not Debug: environment values can contain provider credentials.
+/// Environment values can contain per-start gateway credentials, so no Debug impl is derived.
+#[derive(Clone)]
 pub struct ProcessConfig {
     pub executable: PathBuf,
     pub args: Vec<OsString>,

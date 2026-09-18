@@ -27,7 +27,7 @@ pub fn resolve_codex(configured: Option<&Path>, app_dir: &Path) -> Result<PathBu
             }
         }
     }
-    Err("未找到 Codex。请安装 Codex 或配置 codex_path 指向原生可执行文件".into())
+    Err("未找到 Codex。请安装 Codex 或配置 codex.executable 指向原生可执行文件".into())
 }
 
 fn resolve_native(entry: &Path) -> Option<PathBuf> {

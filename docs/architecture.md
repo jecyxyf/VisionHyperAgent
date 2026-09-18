@@ -122,9 +122,9 @@ VisionHyperAgent/
 │       └── pages/                 # 页面
 ├── source/backend/                       # Rust 后端
 │   ├── Cargo.toml                 # Workspace
-│   ├── common/                    # 全局日志等公共基础设施
-│   ├── server/                    # axum HTTP/WS 服务器与系统托盘
-│   ├── core/                      # 配置/事件总线
+│   ├── common/                    # 全局日志、原子 JSON 配置
+│   ├── server/                    # axum HTTP/WS、托盘、Agent 服务
+│   ├── core/                      # 事件总线等预留业务核心
 │   └── model/
 │       └── codex_agent/           # Codex App Server WebSocket 客户端
 └── bin/                           # 编译产物

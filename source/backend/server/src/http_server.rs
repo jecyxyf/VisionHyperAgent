@@ -12,7 +12,8 @@ use axum::Router;
 use rust_embed::RustEmbed;
 
 use crate::shutdown::{ShutdownController, ShutdownSignal};
-use crate::{agent_api, agent_runtime::AgentRuntime, codex_config::CodexSettings};
+use crate::{agent_api, agent_runtime::AgentRuntime};
+use vha_codex_agent::LoadedAgentConfig;
 
 #[derive(RustEmbed)]
 #[folder = "../../frontend/dist/"]
@@ -49,18 +50,25 @@ impl Drop for ServerHandle {
 }
 
 /// A host without provider configuration, useful for serving setup/error UI and isolated tests.
+pub fn local_addr() -> SocketAddr {
+    SocketAddr::from((std::net::Ipv4Addr::LOCALHOST, 8420))
+}
+
 pub fn start(addr: SocketAddr) -> Result<ServerHandle, String> {
-    start_with_codex(addr, Err("尚未配置 Agent 模型服务".into()))
+    let app_dir = std::env::current_dir().unwrap_or_else(|_| std::path::PathBuf::from("."));
+    start_with_codex(addr, &app_dir, Err("尚未配置 Agent 模型服务".into()))
 }
 
 /// Starts HTTP promptly. Codex initialization runs in the owned background supervisor.
 pub fn start_with_codex(
     addr: SocketAddr,
-    settings: Result<CodexSettings, String>,
+    app_dir: &std::path::Path,
+    loaded: Result<LoadedAgentConfig, String>,
 ) -> Result<ServerHandle, String> {
     if !addr.ip().is_loopback() {
         return Err("backend must listen on a loopback address".into());
     }
+    let app_dir = app_dir.to_path_buf();
     let shutdown = ShutdownController::new();
     let thread_shutdown = shutdown.clone();
     let (startup_tx, startup_rx) = mpsc::channel();
@@ -96,7 +104,12 @@ pub fn start_with_codex(
             if startup_tx.send(Ok(bound)).is_err() {
                 return;
             }
-            if let Err(error) = runtime.block_on(run_server(listener, thread_shutdown, settings)) {
+            if let Err(error) = runtime.block_on(run_server(
+                listener,
+                thread_shutdown,
+                app_dir.to_path_buf(),
+                loaded,
+            )) {
                 log::error!("application backend stopped with error: {error}");
             }
             runtime.shutdown_timeout(Duration::from_secs(1));
@@ -125,13 +138,14 @@ pub fn start_with_codex(
 async fn run_server(
     listener: tokio::net::TcpListener,
     shutdown: ShutdownController,
-    settings: Result<CodexSettings, String>,
+    app_dir: std::path::PathBuf,
+    loaded: Result<LoadedAgentConfig, String>,
 ) -> Result<(), String> {
     let addr = listener.local_addr().map_err(|error| error.to_string())?;
-    let runtime = AgentRuntime::prepare(settings, addr).await;
+    let runtime = AgentRuntime::prepare(loaded, &app_dir, addr).await;
     let service = runtime.service.clone();
     let mut supervisor = tokio::spawn(runtime.run(ShutdownSignal::from_controller(&shutdown)));
-    let gateway = crate::model_gateway::routes(service.settings.clone())?;
+    let gateway = crate::model_gateway::routes(service.agent.clone())?;
     let app = Router::new()
         .route("/api/health", get(health))
         .merge(agent_api::routes(

@@ -197,23 +197,4 @@ impl AgentService {
             service.publish_status().await;
         });
     }
-
-    pub(crate) async fn refresh_models(&self) {
-        let Some(settings) = &self.settings else {
-            return;
-        };
-        if let Ok(Page { data, .. }) = self.client.list_models(None).await {
-            if let Some(mut model) = data.into_iter().find(|m| m.model == settings.model) {
-                model.is_default = true;
-                // Generic Codex fallback metadata is not evidence of an external model's vision support.
-                model.input_modalities = if settings.supports_images {
-                    vec!["text".into(), "image".into()]
-                } else {
-                    vec!["text".into()]
-                };
-                self.state.lock().await.model = Some(model);
-            }
-        }
-        self.publish_status().await;
-    }
 }

@@ -5,7 +5,7 @@ use std::time::Duration;
 use tokio::net::{TcpListener, TcpStream};
 use tokio::time::timeout;
 use tokio_tungstenite::{accept_async, tungstenite::Message, WebSocketStream};
-use vha_codex_agent::{AgentConfig, AgentEvent, CodexAgent, ConnectionPhase, ServerRequest};
+use vha_codex_agent::{AgentEvent, CodexAgent, ConnectionPhase, ServerRequest, TransportConfig};
 
 pub type Socket = WebSocketStream<TcpStream>;
 pub const DEADLINE: Duration = Duration::from_secs(3);
@@ -16,8 +16,8 @@ pub async fn fixture() -> (TcpListener, CodexAgent) {
     (listener, agent)
 }
 
-pub fn config(listener: &TcpListener) -> AgentConfig {
-    AgentConfig {
+pub fn config(listener: &TcpListener) -> TransportConfig {
+    TransportConfig {
         websocket_url: format!("ws://{}", listener.local_addr().unwrap()),
         connect_timeout: Duration::from_millis(500),
         request_timeout: Duration::from_millis(600),

@@ -19,13 +19,19 @@ pub struct EventBus {
 impl Default for EventBus {
     fn default() -> Self {
         let (tx, _) = broadcast::channel(256);
-        Self { tx, _subs: Arc::new(Mutex::new(HashMap::new())) }
+        Self {
+            tx,
+            _subs: Arc::new(Mutex::new(HashMap::new())),
+        }
     }
 }
 
 impl EventBus {
     pub fn publish(&self, topic: impl Into<String>, payload: serde_json::Value) {
-        let _ = self.tx.send(Event { topic: topic.into(), payload });
+        let _ = self.tx.send(Event {
+            topic: topic.into(),
+            payload,
+        });
     }
 
     pub fn subscribe(&self) -> broadcast::Receiver<Event> {

@@ -11,7 +11,6 @@
   import type { AgentAttachment, AgentChatMessage, AgentHistorySession, AgentSnapshot, CodexItem, CodexThread, CodexTurn, ThreadPage } from "./agent/types";
 
   const socket = new AgentSocket();
-  const efforts = ["low", "medium", "high", "xhigh", "max", "ultra"];
   const storageKey = "vha.agent.activeThread";
   let draft = $state("");
   let messageCache = $state<Record<string, AgentChatMessage[]>>({});
@@ -43,8 +42,10 @@
   const activeTurn = $derived(snapshot.activeTurns[activeSessionId]);
   const generating = $derived(Boolean(sendPhase || activeTurn));
   const ready = $derived(connected && snapshot.phase === "ready");
-  const knownEfforts = $derived(snapshot.models.find((m) => m.model === selectedModel)?.supportedReasoningEfforts.map((e) => e.reasoningEffort) ?? []);
-  const effortSupported = $derived(!knownEfforts.length || knownEfforts.includes(selectedEffort));
+  const selectedModelData = $derived(snapshot.models.find((model) => model.id === selectedModel));
+  const modelEfforts = $derived(selectedModelData?.supportedReasoningEfforts.map((effort) => effort.reasoningEffort) ?? []);
+  const supportsImages = $derived(Boolean(selectedModelData?.inputModalities.includes("image")));
+  const effortSupported = $derived(!modelEfforts.length || modelEfforts.includes(selectedEffort));
   const inputTooLong = $derived(new TextEncoder().encode(draft).byteLength > 64 * 1024);
   const canSend = $derived(!inputTooLong && ready && initialized && !generating && !switching && selectedModel !== "" && effortSupported && (draft.trim().length > 0 || attachments.length > 0));
   const statusText = $derived(!connected ? "后端未连接" : ({ starting: "Codex 启动中", connecting: "正在连接 Codex", reconnecting: "Codex 重连中", ready: initializing ? "正在同步会话" : activeTurn?.uncertain ? "任务状态待同步" : generating ? "任务进行中" : "Agent 已就绪", error: "Agent 不可用", stopping: "后端正在退出", stopped: "后端已停止" }[snapshot.phase] ?? snapshot.phase));
@@ -68,7 +69,7 @@
     if (typeof candidate.phase !== "string" || !Array.isArray(candidate.models) || !candidate.activeTurns || typeof candidate.activeTurns !== "object" || !Array.isArray(candidate.interactions)) return;
     if (candidate.models.some((model) => !model || typeof model.id !== "string" || typeof model.model !== "string" || !Array.isArray(model.supportedReasoningEfforts))) return;
     snapshot = candidate;
-    if (!snapshot.models.some((model) => model.model === selectedModel)) selectedModel = snapshot.models[0]?.model ?? "";
+    if (!snapshot.models.some((model) => model.id === selectedModel)) selectedModel = snapshot.models[0]?.id ?? "";
     if (ready && !initialized) void initialize();
     if (stopAfterSend && snapshot.activeTurns[stopAfterSend]) {
       const threadId = stopAfterSend; stopAfterSend = null;
@@ -173,7 +174,7 @@
       sendPhase = "submitting";
       pendingId = "pending-" + crypto.randomUUID();
       upsert(thread, { id: pendingId, clientId: pendingId, tone: "user", body: [text, ...files.map((item) => "附件：" + item.file.name)].filter(Boolean).join("\n"), status: "pending" });
-      await socket.request<{ turn: CodexTurn }>("turn.start", { threadId: thread, text, model: selectedModel, effort: selectedEffort, attachments: ids, clientMessageId: pendingId });
+      await socket.request<{ turn: CodexTurn }>("turn.start", { threadId: thread, text, modelId: selectedModel, effort: selectedEffort, attachments: ids, clientMessageId: pendingId });
       if (disposed) return;
       const list = messageCache[thread] ?? [];
       messageCache[thread] = list.map((message) => message.id === pendingId ? { ...message, status: "sent" } : message);
@@ -229,6 +230,7 @@
     if (sendPhase) return;
     for (const file of Array.from(list)) {
       if (file.size === 0 || file.size > 16 * 1024 * 1024) { notice = "附件不能为空，且每个文件不得超过 16 MiB。"; continue; }
+      if (file.type.startsWith("image/") && !supportsImages) { notice = "当前模型不支持图片附件。"; continue; }
       if (attachments.length >= 16) { notice = "每条消息最多携带 16 个附件。"; break; }
       attachments = [...attachments, { id: crypto.randomUUID(), file, previewUrl: file.type.startsWith("image/") ? URL.createObjectURL(file) : undefined }];
     }
@@ -260,6 +262,12 @@
     ];
     socket.connect();
     return () => { disposed = true; ++operation; ++hydration; off.forEach((fn) => fn()); socket.disconnect(); uploadController?.abort(); releaseAttachments(attachments); if (historyRefresh) clearTimeout(historyRefresh); };
+  });
+
+  $effect(() => {
+    if (modelEfforts.length && !modelEfforts.includes(selectedEffort)) {
+      selectedEffort = selectedModelData?.defaultReasoningEffort ?? modelEfforts[0];
+    }
   });
 </script>
 
@@ -300,12 +308,12 @@
         <label class="setting model"><span>模型</span><span class="select-shell">
           <select bind:value={selectedModel} aria-label="选择 Agent 模型" disabled={!snapshot.models.length || generating}>
             {#if !snapshot.models.length}<option value="">等待模型…</option>{/if}
-            {#each snapshot.models as model (model.id)}<option value={model.model}>{model.displayName}</option>{/each}
+            {#each snapshot.models as model (model.id)}<option value={model.id}>{model.displayName}</option>{/each}
           </select><Icon name="chevron" size={12} />
         </span></label>
         <label class="setting effort"><span>Effort</span><span class="select-shell">
           <select bind:value={selectedEffort} aria-label="选择 Agent Effort" disabled={generating}>
-            {#each efforts as effort}<option value={effort} disabled={Boolean(knownEfforts.length && !knownEfforts.includes(effort))}>{effort}</option>{/each}
+            {#each modelEfforts as effort (effort)}<option value={effort}>{effort}</option>{/each}
           </select><Icon name="chevron" size={12} />
         </span></label>
         <span class="footer-spacer" aria-hidden="true"></span>

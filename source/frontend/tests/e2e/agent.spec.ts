@@ -1,4 +1,7 @@
 import { test, expect } from '@playwright/test';
+import { readFile, readdir } from 'node:fs/promises';
+import { join, resolve } from 'node:path';
+import { approveExpectedCommand, parseShellGroups } from './command-approval';
 
 // Uses the actual local backend and Codex. The runner supplies a synthetic isolated workspace.
 test('real model: streaming reply, history, reload and new context', async ({ page }) => {
@@ -10,7 +13,7 @@ test('real model: streaming reply, history, reload and new context', async ({ pa
   page.on('pageerror', (error) => errors.push(error.message));
   await page.goto('/');
   await expect(page.getByTestId('agent-status')).toContainText('已就绪');
-  await expect(page.getByLabel('选择 Agent 模型')).toHaveValue('MiniMax-M3');
+  await expect(page.getByLabel('选择 Agent 模型')).toHaveValue('minimax-m3');
   await page.getByRole('button', { name: '清空并开始新会话' }).click();
   const prompt = '请只回复 VHA_BROWSER_OK。不要调用工具。';
   await page.getByLabel('消息输入').fill(prompt);
@@ -44,7 +47,7 @@ async function dropFile(page: import('@playwright/test').Page, name: string, con
   await transfer.dispose();
 }
 
-test('real attachment: drag/remove, upload and actual model file read', async ({ page }) => {
+test('real attachment: drag/remove, upload and actual model file read', async ({ page, request }) => {
   const errors: string[] = []; page.on('pageerror', error => errors.push(error.message));
   await page.goto('/'); await expect(page.getByTestId('agent-status')).toContainText('已就绪');
   await page.getByRole('button', { name: '清空并开始新会话' }).click();
@@ -54,8 +57,23 @@ test('real attachment: drag/remove, upload and actual model file read', async ({
   await expect(page.getByLabel('待发送附件')).toHaveCount(0);
   const marker = 'VHA_UPLOAD_' + crypto.randomUUID();
   await dropFile(page, '说明-附件.txt', '唯一标记：' + marker);
-  await page.getByLabel('消息输入').fill('请实际使用工具读取附件中的唯一标记，并原样回复标记。不要读取其他目录。');
+  await page.getByLabel('消息输入').fill('请实际使用工具读取附件中的唯一标记，并原样回复标记。附件描述中包含 path；请申请执行且仅执行 cat 该 path 这一条读取命令，不要读取其他目录或文件。');
+  const threadId = await page.evaluate(() => localStorage.getItem('vha.agent.activeThread'));
   await page.getByRole('button', { name: '发送消息', exact: true }).click();
+  const host = JSON.parse(await readFile(resolve('../../bin/test-artifacts/live-host.json'), 'utf8')) as { workspace: string };
+  const attachmentRoot = join(host.workspace, '.vha-attachments');
+  let attachmentPath = '';
+  await expect.poll(async () => {
+    for (const name of await readdir(attachmentRoot).catch(() => [])) {
+      const candidate = join(attachmentRoot, name);
+      if (name.endsWith('.txt') && (await readFile(candidate, 'utf8').catch(() => '')).includes(marker)) attachmentPath = candidate;
+    }
+    return attachmentPath;
+  }, { timeout: 15_000 }).toBeTruthy();
+  await approveExpectedCommand(page, request, threadId, (command) => {
+    const groups = parseShellGroups(command);
+    return groups.length === 1 && JSON.stringify(groups[0]) === JSON.stringify(['cat', attachmentPath]);
+  });
   await expect(page.locator('article[data-tone="assistant"]').filter({ hasText: marker })).toBeVisible({ timeout: 90_000 });
   await expect(page.getByRole('button', { name: '发送消息', exact: true })).toBeVisible({ timeout: 90_000 });
   await expect(page.locator('article[data-tone="tool"]')).not.toHaveCount(0);
@@ -68,7 +86,7 @@ test('real attachment: drag/remove, upload and actual model file read', async ({
 
 test('UI: unsupported image error retains draft and attachment', async ({ page }) => {
   await page.routeWebSocket('**/ws', socket => {
-    const snapshot = { phase: 'ready', models: [{ id: 'test', model: 'MiniMax-M3', displayName: 'MiniMax-M3', supportedReasoningEfforts: [], inputModalities: ['text'] }], activeTurns: {}, interactions: [] };
+    const snapshot = { phase: 'ready', models: [{ id: 'text-only', model: 'text-only', displayName: 'text-only', defaultReasoningEffort: 'low', supportedReasoningEfforts: [{ reasoningEffort: 'low' }, { reasoningEffort: 'medium' }], inputModalities: ['text'] }], activeTurns: {}, interactions: [] };
     const thread = { id: 'image-denied-thread', preview: '', createdAt: 1, updatedAt: 1, turns: [] };
     socket.onMessage(raw => { const call = JSON.parse(String(raw)); if (!call.id) return;
       if (call.method === 'turn.start') socket.send(JSON.stringify({ id: call.id, error: { code: 'attachment', message: '尚未确认当前模型支持图片' } }));
@@ -80,19 +98,14 @@ test('UI: unsupported image error retains draft and attachment', async ({ page }
   await page.getByRole('button', { name: '清空并开始新会话' }).click();
   const png = Array.from(Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+aJawAAAAASUVORK5CYII=', 'base64'));
   await dropFile(page, '能力检查.png', png, 'image/png');
-  const draft = '请检查这张图片'; await page.getByLabel('消息输入').fill(draft);
-  await page.getByRole('button', { name: '发送消息', exact: true }).click();
-  await expect(page.getByRole('alert')).toContainText('尚未确认当前模型支持图片');
-  await expect(page.getByLabel('消息输入')).toHaveValue(draft);
-  await expect(page.getByLabel('待发送附件')).toContainText('能力检查.png');
-  await expect(page.getByRole('button', { name: '发送消息', exact: true })).toBeVisible();
-  await page.getByRole('button', { name: '删除附件 能力检查.png' }).click();
+  await expect(page.getByRole('alert')).toContainText('当前模型不支持图片附件');
   await expect(page.getByLabel('待发送附件')).toHaveCount(0);
+  await expect(page.getByRole('button', { name: '发送消息', exact: true })).toBeVisible();
 });
 
 test('literal model-like markup is not executable HTML in chat', async ({ page }) => {
   await page.routeWebSocket('**/ws', socket => {
-    const snapshot = { phase: 'ready', message: null, models: [{ id: 'test', model: 'MiniMax-M3', displayName: 'MiniMax-M3', supportedReasoningEfforts: [], inputModalities: ['text'] }], activeTurns: {}, interactions: [] };
+    const snapshot = { phase: 'ready', message: null, models: [{ id: 'minimax-m3', model: 'minimax-m3', displayName: 'minimax-m3', defaultReasoningEffort: 'medium', supportedReasoningEfforts: [{ reasoningEffort: 'low' }, { reasoningEffort: 'medium' }], inputModalities: ['text'] }], activeTurns: {}, interactions: [] };
     const thread = { id: 'safe-thread', preview: 'safe', createdAt: 1, updatedAt: 1, turns: [{ id: 'safe-turn', status: 'completed', items: [{ id: 'safe-item', type: 'agentMessage', text: '<img src=x onerror="window.__vhaInjected=1"><script>window.__vhaInjected=1</script>' }] }] };
     socket.onMessage(raw => {
       const call = JSON.parse(String(raw));
@@ -148,7 +161,7 @@ test('UI: file-change approval and user-input answers preserve exact request ide
   const replies: Array<Record<string, unknown>> = [];
   await page.routeWebSocket('**/ws', socket => {
     const thread = { id: 'interactive-thread', preview: 'confirmation', createdAt: 1, updatedAt: 1, turns: [{ id: 'interactive-turn', status: 'inProgress', items: [{ id: 'file-item', type: 'fileChange', changes: [{ path: 'notes.txt', diff: '-draft\n+reviewed' }] }] }] };
-    const snapshot = { phase: 'ready', models: [{ id: 'test', model: 'MiniMax-M3', displayName: 'MiniMax-M3', supportedReasoningEfforts: [], inputModalities: ['text'] }], activeTurns: {}, interactions: [{ key: '1:file', request: { id: 'file', connectionId: 1, method: 'item/fileChange/requestApproval', params: { threadId: thread.id, turnId: 'interactive-turn', itemId: 'file-item', reason: '修改 notes.txt' } } }] };
+    const snapshot = { phase: 'ready', models: [{ id: 'minimax-m3', model: 'minimax-m3', displayName: 'minimax-m3', defaultReasoningEffort: 'medium', supportedReasoningEfforts: [{ reasoningEffort: 'low' }, { reasoningEffort: 'medium' }], inputModalities: ['text'] }], activeTurns: {}, interactions: [{ key: '1:file', request: { id: 'file', connectionId: 1, method: 'item/fileChange/requestApproval', params: { threadId: thread.id, turnId: 'interactive-turn', itemId: 'file-item', reason: '修改 notes.txt' } } }] };
     socket.onMessage(raw => {
       const call = JSON.parse(String(raw)); if (!call.id) return;
       if (call.method === 'interaction.reply') {

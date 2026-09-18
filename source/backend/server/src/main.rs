@@ -7,7 +7,8 @@
 mod browser;
 mod tray;
 
-use vha_server::{app_config::AppConfig, codex_config::CodexSettings, http_server};
+use std::path::PathBuf;
+use vha_server::http_server;
 
 fn main() {
     let logging_config = vha_common::logging::config_for_executable("VisionHyperAgent");
@@ -41,24 +42,22 @@ fn main() {
             .unwrap_or_else(|error| format!("<unavailable: {error}>"))
     );
 
-    let config = AppConfig::local();
-    log::info!(
-        "local address configured, listen_addr={}",
-        config.listen_addr
-    );
+    let addr = http_server::local_addr();
+    log::info!("local address configured, listen_addr={addr}");
 
-    let app_dir = std::env::current_exe()
-        .ok()
-        .and_then(|p| p.parent().map(std::path::Path::to_path_buf))
-        .unwrap_or_else(|| std::path::PathBuf::from("."));
-    let settings = CodexSettings::load(&app_dir);
-    let server = match http_server::start_with_codex(config.listen_addr, settings) {
+    let app_dir = application_dir();
+    let loaded = vha_codex_agent::config::load(&app_dir).map_err(|error| {
+        log::error!("Agent configuration failed: {error}");
+        error
+    });
+    let server = match http_server::start_with_codex(addr, &app_dir, loaded) {
         Ok(server) => server,
         Err(error) => {
             log::error!("failed to start local server: {error}");
             std::process::exit(1);
         }
     };
+    let base_url = format!("http://{}", server.address());
 
     let result = if std::env::args().any(|arg| arg == "--headless") {
         let runtime = tokio::runtime::Builder::new_current_thread()
@@ -70,7 +69,7 @@ fn main() {
         }
         server.stop()
     } else {
-        tray::run(&config.base_url(), server)
+        tray::run(&base_url, server)
     };
     if let Err(error) = result {
         log::error!("failed to run VisionHyperAgent: {error}");
@@ -78,6 +77,13 @@ fn main() {
     }
 
     log::info!("VisionHyperAgent stopped");
+}
+
+fn application_dir() -> PathBuf {
+    std::env::current_exe()
+        .ok()
+        .and_then(|path| path.parent().map(PathBuf::from))
+        .unwrap_or_else(|| PathBuf::from("."))
 }
 
 async fn wait_for_signal() -> std::io::Result<()> {
