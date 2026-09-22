@@ -6,7 +6,7 @@ AGENTS.md 只负责路由，不承载项目规则本身。每次执行任务前�
 
 | 任务类型 | 必读文档 |
 | --- | --- |
-| 前期对话、产品需求、技术框架、目录结构、模块定义、接口定义、全局规划 | [project-requirement](project-rules/project-requirement/SKILL.md) |
+| 前期对话、产品需求、技术方案、目录结构、模块定义、接口定义、全局规划 | [project-requirement](project-rules/project-requirement/SKILL.md) |
 | 新增、移动、调整代码目录、文件、模块、测试或文档位置 | [project-structure](project-rules/project-structure.md) |
 | 编写、修改、审查、重构或测试代码 | [project-code](project-rules/project-code.md) |
 | 编译、打包、部署或发布验证 | [project-build](project-rules/project-build.md) |

@@ -1,6 +1,6 @@
 # <模块名 / 类名> API 文档
 
-> 沿用《技术文档模板.md》的标题、表格和接口说明形式，内容使用《项目框架模板.md》中的 VmBatchRunner 作为 Demo。本文定义示例接口契约，不代表仓库中已有实现；调用示例统一放在最后一个独立章节。
+> 本模板使用同目录《技术方案模板.md》中的 VmBatchRunner 示范模块 API 的表达形式，不代表目标项目已有实现。依据已确认的技术方案替换模块、类型、语言和接口，输出到 `docs/models/<架构层名称>/<模块名>.md`；没有的能力说明“不适用”，不为填表添加功能。全部方法的调用集中在末尾一个完整 Demo 中，成品移除本段模板说明。
 
 ## 1. 概述
 
@@ -398,116 +398,144 @@ start() → 接收通知 / snapshot() → 可选 cancel()
 **执行过程**：程序在自动清理的临时目录中生成一张 PPM 测试图片，再提交缩放任务。为展示 cancel()，提交后立即请求取消；小任务可能已完成，所以 Succeeded 和 Cancelled 都是合法结果。
 
 ```cpp
+// 导入任务与滤镜接口
 #include "ViewModel/VmBatchRunner.h"
 #include "Algo/FilterRegistry.h"
 #include "Algo/ImageCodec.h"
 #include "Algo/ResizeFilter.h"
 
+// 导入事件循环与文件工具
 #include <QByteArray>
 #include <QCoreApplication>
 #include <QDir>
 #include <QFile>
+// 导入临时目录与异常输出
 #include <QTemporaryDir>
 #include <exception>
 #include <iostream>
 #include <memory>
+// 导入委托移动工具
 #include <utility>
 
+// 创建演示运行环境
 int main(int argc, char* argv[])
 {
     QCoreApplication app(argc, argv);
     QTemporaryDir workspace;
+    // 检查临时工作目录
     if (!workspace.isValid()) {
         std::cerr << "无法创建临时目录\n";
         return 1;
     }
 
+    // 准备输入和输出路径
     const QString inputPath = workspace.path() + "/input.ppm";
     const QString outputDir = workspace.path() + "/output";
+    // 创建输出目录
     if (!QDir().mkpath(outputDir)) {
         return 1;
     }
 
+    // 生成测试图片像素
     QFile inputFile(inputPath);
     QByteArray pixels("P6\n2 2\n255\n");
     pixels += QByteArray::fromHex("ff0000" "00ff00" "0000ff" "ffffff");
+    // 写入测试图片
     if (!inputFile.open(QIODevice::WriteOnly)
         || inputFile.write(pixels) != pixels.size()) {
+        // 报告图片写入失败
         std::cerr << "无法生成测试图片\n";
         return 1;
     }
     inputFile.close();
 
+    // 使用任务与算法命名空间
     using namespace ImageBatch::ViewModel;
     namespace Algo = ImageBatch::Algo;
 
+    // 处理初始化与调用异常
     try {
-        // 依赖先创建，保证其晚于执行器销毁。
+        // 初始化滤镜和编解码服务
         Algo::FilterRegistry registry;
         Algo::ImageCodec codec;
         registry.registerFilter("resize", std::make_shared<Algo::ResizeFilter>());
 
-        // 构造；不设置 QObject 父对象，由 unique_ptr 单独管理。
+        // 创建任务执行器并读取初始状态
         auto runner = std::make_unique<VmBatchRunner>(registry, codec);
         std::cout << "初始状态为 Idle: "
                   << (runner->snapshot().state == TaskState::Idle) << "\n";
 
+        // 初始化任务通知处理
         bool terminalSeen = false;
         TaskEventHandler handler = [&](const TaskEvent& event) {
             const auto& status = event.snapshot;
             switch (event.kind) {
+            // 显示开始通知
             case EventKind::Started:
                 std::cout << "已开始: " << status.taskId << "\n";
                 break;
+            // 显示处理进度
             case EventKind::Progress:
                 std::cout << "进度: " << status.completed
                           << "/" << status.total << "\n";
                 break;
+            // 记录任务完成结果
             case EventKind::Finished:
                 terminalSeen = true;
                 std::cout << "任务结束，错误信息: "
                           << status.error.message << "\n";
-                // 这里只退出事件循环，不在回调内部销毁执行器。
+                // 结束事件循环
                 app.quit();
                 break;
             }
         };
+        // 订阅任务通知
         const auto token = runner->subscribe(std::move(handler));
 
+        // 设置任务标识和输入图片
         BatchRequest request;
         request.taskId = "demo-task";
         request.inputs.push_back({"image-a", inputPath.toUtf8().toStdString()});
+        // 添加缩放操作与输出目录
         request.operations.push_back({
             "resize", Algo::FilterParams{{"width", 64}, {"height", 64}}
         });
         request.outputDirectory = outputDir.toUtf8().toStdString();
 
+        // 提交批处理任务
         const auto submitted = runner->start(request);
         if (!submitted.accepted) {
             std::cerr << "提交失败: " << submitted.error.message << "\n";
+            // 清理未被接收的任务
             runner->unsubscribe(token);
             runner.reset();
-            return 1;  // 被拒绝的请求不会产生 Finished，不进入等待。
+            return 1;
         }
 
+        // 读取任务进度
         std::cout << "任务图片数: " << runner->snapshot().total << "\n";
+        // 发送取消请求
         const bool cancellationRequested = runner->cancel();
         std::cout << "已登记取消请求: " << cancellationRequested << "\n";
 
-        // start() 不同步回调；在事件循环中接收 Started / Progress / Finished。
+        // 分发任务通知
         const int eventLoopCode = app.exec();
 
+        // 保存结果并释放执行器
         const TaskSnapshot finalStatus = runner->snapshot();
         runner->unsubscribe(token);
-        runner.reset();  // 调用析构；之后 registry 和 codec 才离开作用域。
+        runner.reset();
 
+        // 检查最终状态
         if (!terminalSeen || finalStatus.state == TaskState::Failed) {
             std::cerr << finalStatus.error.message << "\n";
             return 1;
         }
+        // 输出处理结果
         std::cout << "成功输出文件数: " << finalStatus.outputPaths.size() << "\n";
         return eventLoopCode;
     } catch (const std::exception& error) {
+        // 报告调用异常
         std::cerr << error.what() << "\n";
         return 1;
     }
