@@ -8,7 +8,7 @@ Agent 驱动的视觉模型桌面软件。
 - **后端**：Rust + axum，本机 HTTP/WebSocket 服务及系统托盘。
 - **Agent**：后端启动并持有 Codex App Server；`CodexAgent` 通过 WebSocket 调用，不自行管理进程。
 - **标注**：Canvas 2D。训练、标注和推理业务仍属于后续阶段。
-- **架构文档**：当前 Agent 前后端模块与接口见 docs/frontend-backend-architecture.md。
+- **规划文档**：产品需求、技术方案、项目结构和代码规范见 `docs/`；模块接口见 `docs/models/`。
 
 ## 直接运行
 
@@ -18,7 +18,7 @@ Windows 部署包为 `bin/VisionHyperAgent-windows-x64.zip`。解压后运行 `V
 
 需要可用的 Codex 原生可执行文件，以及应用目录内的私有 `app_config.json`。
 配置示例：`docs/app-config.example.json`。
-详细说明：`docs/codex-agent-usage.md`。
+详细规划：`docs/产品需求文档.md`、`docs/技术方案设计.md`。
 
 ## 开发构建
 
@@ -53,12 +53,12 @@ npm run check:tests --prefix source/frontend
 npm run test:unit --prefix source/frontend
 ```
 
-真实 Codex 和浏览器测试的准备条件见 `docs/codex-agent-usage.md`；测试结论见 `docs/codex-agent-test-report.md`。
+测试入口和验收要求见 `docs/代码规范.md`、`docs/技术方案设计.md` 及 `docs/plans/需求设计进度.md`。
 
 ## 目录
 
 ```text
-docs/                       需求、设计、使用说明及测试报告
+docs/                       需求、技术方案、结构、规范、API 和计划
 source/frontend/            Svelte / TypeScript 前端
 source/backend/common/      全局日志等公共设施
 source/backend/server/      宿主、进程所有权、浏览器接口、附件、模型协议兼容层

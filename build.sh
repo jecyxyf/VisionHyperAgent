@@ -56,9 +56,6 @@ for legacy in [
 
 shared_entries = [
     (root / "docs/app-config.example.json", "app_config.example.json"),
-    (root / "docs/codex-agent-usage.md", "codex-agent-usage.md"),
-    (root / "docs/codex-agent-test-report.md", "codex-agent-test-report.md"),
-    (root / "docs/frontend-backend-architecture.md", "frontend-backend-architecture.md"),
 ]
 
 windows_readme = '''VisionHyperAgent Windows 部署说明
@@ -79,7 +76,7 @@ windows_readme = '''VisionHyperAgent Windows 部署说明
 8. 双击 VisionHyperAgent.exe 启动；浏览器关闭不会退出后台。需要退出时使用系统托盘图标的“退出”菜单。
 9. 日志位于 logs/VisionHyperAgent.YYYY-MM-DD.log。
 
-更多说明见 codex-agent-usage.md。
+规划文档见项目仓库的 docs/ 目录。
 '''
 
 linux_readme = '''VisionHyperAgent Linux x64 部署说明
@@ -100,7 +97,7 @@ linux_readme = '''VisionHyperAgent Linux x64 部署说明
 8. app_config.json 包含密钥，不要提交到 Git、不要随压缩包分发。
 9. 日志位于 logs/VisionHyperAgent.YYYY-MM-DD.log。
 
-更多说明见 codex-agent-usage.md。
+规划文档见项目仓库的 docs/ 目录。
 '''
 
 def package(output: Path, executable: Path, executable_name: str, readme_name: str, readme: str):
