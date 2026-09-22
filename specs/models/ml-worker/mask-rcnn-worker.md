@@ -1,5 +1,19 @@
 # mask-rcnn-worker API 文档
 
+## Overview
+
+本文件同时是 `mask-rcnn-worker` 的 API 契约和 2119 需求来源。需求约束 manifest 边界、NDJSON 协议、计算结果和取消行为。
+
+## Requirements
+
+### 1: 训练推理 Worker
+
+1. Worker MUST 拒绝越出任务根目录的 manifest、图片和遮罩路径 [manual]
+2. Worker MUST 为每条命令输出关联 request_id 的 NDJSON 事件和唯一终态凭证 [manual]
+3. Worker MUST 在训练、评估或推理产物缺少完成凭证时报告失败 [manual]
+4. Worker MUST 在安全检查点响应取消并输出可解释的取消结果 [manual]
+
+
 ## 1. 概述
 
 `mask-rcnn-worker` 是唯一执行 PyTorch / torchvision Mask R-CNN 计算的 Python 子进程。它通过 stdin / stdout NDJSON 与 Rust `task-runtime` 通信，读取明确授权的 manifest，写入任务目录，不连接 SQLite。
@@ -137,15 +151,11 @@ assert proof.artifacts and environment.device is not None
 
 ## 12. 2119 测试要求
 
-### 验证范围
-
-规格应覆盖 Worker 的 NDJSON 协议、数据边界、GPU 能力、训练结果和取消行为：
-
-| 行为 | 必须验证 | 反例测试 |
+| 2119 ID | 验证行为 | 当前证据 |
 | --- | --- | --- |
-| 环境与输入 | probe 报告设备；manifest 只允许访问任务根目录 | 无 GPU、损坏 manifest、路径越界必须返回稳定错误 |
-| 计算任务 | train/evaluate/infer 输出阶段事件和唯一终态凭证 | 参数非法、模型损坏和显存不足不得报告成功 |
-| 取消 | 在安全检查点停止并写出取消结果 | 任意时刻强杀造成半凭证不得被视为成功 |
-| 协议 | 每条命令保持 NDJSON 帧边界和 request_id 关联 | 非法命令、回调异常和重复终态必须拒绝或失败 |
+| `mask-rcnn-worker.1.1` | manifest 路径越界被拒绝 | 规划验收；实现后补 pytest 路径测试 |
+| `mask-rcnn-worker.1.2` | NDJSON 事件和终态凭证唯一 | 规划验收；实现后补协议测试 |
+| `mask-rcnn-worker.1.3` | 缺少凭证不得报告成功 | 规划验收；实现后补结果哈希测试 |
+| `mask-rcnn-worker.1.4` | 取消在安全检查点生效 | 规划验收；实现后补取消测试 |
 
-pytest 用小样本和无 GPU 环境覆盖协议、路径、错误和完成哈希；真实 GPU 验收另列平台测试，不用 mock 声称完成。
+测试使用 `# 2119: mask-rcnn-worker.1.1` 标记；真实 GPU 验收另行执行，不用 mock 声称完成。

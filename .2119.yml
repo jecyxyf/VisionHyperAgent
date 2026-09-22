@@ -1,12 +1,12 @@
 # 2119 configuration — https://github.com/Unsupervisedcom/2119
 # All fields optional; these are the defaults unless noted.
 #
-# specs:
-#   - "specs/**/*.md"
-# tests:
-#   - "test/**"
-#   - "tests/**"
-#   - "**/*.test.*"
+specs:
+  - "specs/**/*.md"
+tests:
+  - "test/**"
+  - "tests/**"
+  - "**/*.test.*"
 # prefix: "REQ"
 # enforce: ["MUST", "MUST NOT", "SHALL", "SHALL NOT", "REQUIRED"]
 # reviews: true

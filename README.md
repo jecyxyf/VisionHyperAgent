@@ -8,7 +8,7 @@ Agent 驱动的视觉模型桌面软件。
 - **后端**：Rust + axum，本机 HTTP/WebSocket 服务及系统托盘。
 - **Agent**：后端启动并持有 Codex App Server；`CodexAgent` 通过 WebSocket 调用，不自行管理进程。
 - **标注**：Canvas 2D。训练、标注和推理业务仍属于后续阶段。
-- **规划文档**：产品需求、技术方案、项目结构和代码规范见 `docs/`；模块接口见 `docs/models/`。
+- **规划文档**：产品需求、技术方案、项目结构和代码规范见 `specs/`；模块接口见 `specs/models/`。
 
 ## 直接运行
 
@@ -17,8 +17,8 @@ Windows 部署包为 `bin/VisionHyperAgent-windows-x64.zip`。解压后运行 `V
 启动后自动打开 `http://127.0.0.1:8420/`；从托盘退出会回收 Codex。关闭网页不会关闭后端。
 
 需要可用的 Codex 原生可执行文件，以及应用目录内的私有 `app_config.json`。
-配置示例：`docs/app-config.example.json`。
-详细规划：`docs/产品需求文档.md`、`docs/技术方案设计.md`。
+配置示例：`specs/app-config.example.json`。
+详细规划：`specs/REQ-001-产品需求文档.md`、`specs/REQ-002-技术方案设计.md`。
 
 ## 开发构建
 
@@ -53,12 +53,12 @@ npm run check:tests --prefix source/frontend
 npm run test:unit --prefix source/frontend
 ```
 
-测试入口和验收要求见 `docs/代码规范.md`、`docs/技术方案设计.md` 及 `docs/plans/需求设计进度.md`。
+测试入口和验收要求见 `specs/REQ-004-代码规范.md`、`specs/REQ-002-技术方案设计.md` 及 `specs/plans/REQ-005-需求设计进度.md`。
 
 ## 目录
 
 ```text
-docs/                       需求、技术方案、结构、规范、API 和计划
+specs/                       需求、技术方案、结构、规范、API 和计划
 source/frontend/            Svelte / TypeScript 前端
 source/backend/common/      全局日志等公共设施
 source/backend/server/      宿主、进程所有权、浏览器接口、附件、模型协议兼容层
