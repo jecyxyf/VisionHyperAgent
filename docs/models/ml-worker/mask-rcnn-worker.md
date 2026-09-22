@@ -134,3 +134,18 @@ assert proof.artifacts and environment.device is not None
 | `train` / `evaluate` / `infer` | 计算段 |
 | `request_cancel` | 取消段 |
 | `run_ndjson` | NDJSON 入口调用代码 |
+
+## 12. 2119 测试要求
+
+### 验证范围
+
+规格应覆盖 Worker 的 NDJSON 协议、数据边界、GPU 能力、训练结果和取消行为：
+
+| 行为 | 必须验证 | 反例测试 |
+| --- | --- | --- |
+| 环境与输入 | probe 报告设备；manifest 只允许访问任务根目录 | 无 GPU、损坏 manifest、路径越界必须返回稳定错误 |
+| 计算任务 | train/evaluate/infer 输出阶段事件和唯一终态凭证 | 参数非法、模型损坏和显存不足不得报告成功 |
+| 取消 | 在安全检查点停止并写出取消结果 | 任意时刻强杀造成半凭证不得被视为成功 |
+| 协议 | 每条命令保持 NDJSON 帧边界和 request_id 关联 | 非法命令、回调异常和重复终态必须拒绝或失败 |
+
+pytest 用小样本和无 GPU 环境覆盖协议、路径、错误和完成哈希；真实 GPU 验收另列平台测试，不用 mock 声称完成。
