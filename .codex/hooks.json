@@ -6,7 +6,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "npx rfc2119@0.7.0 hook after-edit --platform codex"
+            "command": "node .codex/tools/rfc2119/node_modules/rfc2119/dist/cli.js hook after-edit --platform codex"
           }
         ]
       }
@@ -16,7 +16,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "npx rfc2119@0.7.0 hook stop --platform codex"
+          "command": "node .codex/tools/rfc2119/node_modules/rfc2119/dist/cli.js hook stop --platform codex"
           }
         ]
       }
@@ -26,7 +26,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "npx rfc2119@0.7.0 hook session-start --platform codex"
+          "command": "node .codex/tools/rfc2119/node_modules/rfc2119/dist/cli.js hook session-start --platform codex"
           }
         ]
       }

@@ -5,6 +5,7 @@ target/
 # Node
 source/frontend/node_modules/
 source/frontend/dist/
+.codex/tools/rfc2119/node_modules/
 
 # Python
 __pycache__/
