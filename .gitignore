@@ -31,6 +31,8 @@ Thumbs.db
 
 # Local agent runtime state
 .superpowers/
+.codex/tools/rfc2119/.offline-install.json
+.codex/tools/rfc2119/.node_modules-offline-*
 # 2119:gitignore-begin
 # Review packets are scratch; verdicts are committed audit history.
 !.2119/

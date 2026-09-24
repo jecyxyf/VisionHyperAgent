@@ -1,0 +1,9 @@
+{
+  "name": "visionhyperagent-codex-hook-tools",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Local dependencies for VisionHyperAgent Codex hooks",
+  "dependencies": {
+    "rfc2119": "0.7.0"
+  }
+}
