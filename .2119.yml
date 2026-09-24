@@ -1,8 +1,10 @@
 # 2119 configuration — https://github.com/Unsupervisedcom/2119
-# All fields optional; these are the defaults unless noted.
+# Only formal requirements and module/component API docs are scanned;
+# product, architecture, progress, and other narrative planning docs are not RFC specs.
 #
 specs:
-  - "specs/**/*.md"
+  - "specs/requirements/**/*.md"
+  - "specs/models/**/*.md"
 tests:
   - "test/**"
   - "tests/**"

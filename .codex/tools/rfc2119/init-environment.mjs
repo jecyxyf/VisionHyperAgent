@@ -15,7 +15,7 @@ const ASSETS = resolve(dirname(fileURLToPath(import.meta.url)), 'offline');
 const VERSIONS = { rfc2119: '0.7.0', picomatch: '4.0.7', yaml: '2.9.1' };
 const PATCH_VERSION = 1;
 // Planning prose and progress tables are not RFC2119 requirement documents.
-const DEFAULT_CONFIG = 'specs: ["specs/requirements/**/*.md"]\ntests: ["test/**", "tests/**", "**/*.test.*"]\n';
+const DEFAULT_CONFIG = 'specs: ["specs/requirements/**/*.md", "specs/models/**/*.md"]\ntests: ["test/**", "tests/**", "**/*.test.*"]\n';
 
 export function checkRuntime(nodeVersion, npmVersion) {
   if (Number(nodeVersion.split('.')[0]) < 20 || !/^\d+\./.test(nodeVersion)) {
